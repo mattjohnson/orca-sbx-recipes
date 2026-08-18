@@ -4,11 +4,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 body() { cat scripts/lifecycle/common.sh "scripts/lifecycle/$1"; }
 mkdir -p recipes
+# Capture bodies into variables first — assignment exit status DOES propagate under set -e.
+create_body="$(body create.sh)"
+suspend_body="$(body suspend.sh)"
+resume_body="$(body resume.sh)"
+destroy_body="$(body destroy.sh)"
 jq -n \
-  --arg create "$(body create.sh)" \
-  --arg suspend "$(body suspend.sh)" \
-  --arg resume "$(body resume.sh)" \
-  --arg destroy "$(body destroy.sh)" '
+  --arg create "$create_body" \
+  --arg suspend "$suspend_body" \
+  --arg resume "$resume_body" \
+  --arg destroy "$destroy_body" '
 {
   schemaVersion: 1,
   id: "sbx-project-sandbox",
