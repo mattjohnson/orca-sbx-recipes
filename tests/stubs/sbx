@@ -19,5 +19,14 @@ case "$*" in
     i=0; while [ "$i" -lt "${STUB_WORKTREES:-1}" ]; do
       printf 'worktree /home/agent/wt%s\nHEAD 0000\n\n' "$i"; i=$((i+1)); done ;;
   *" true") exit 0 ;;
+  ports*--publish*) : ;;
+  ports*)
+    printf 'HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n'
+    if [ -n "${STUB_PORT_PUBLISHED:-}" ]; then
+      printf '127.0.0.1   %s       2222             tcp\n' "${STUB_PORT_PUBLISHED}"
+    fi ;;
+  *"pgrep -x sshd"*) exit 0 ;;
+  *whoami*) printf 'agent' ;;
+  *authorized_keys*) : ;;
   *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
 esac

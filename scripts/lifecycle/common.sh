@@ -39,35 +39,37 @@ sandbox_exists() {
 
 json_escape() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
-# $1=sandbox name, $2=ssh -G key → effective client config value
-ssh_cfg() {
-  ssh -G "$1.sbx" 2>/dev/null | awk -v k="$2" '$1==k { sub(/^[^ ]+ /, ""); print; exit }'
+# Deterministic per-project host port (30000-39999): fixed specs survive VM
+# restarts with the same number; ephemeral ones re-bind (spike-validated).
+project_host_port() {
+  printf '%d\n' $((30000 + 0x$(printf '%s' "$1" | sed 's/^orca-p-//' | cut -c1-4) % 10000))
+}
+
+# No systemd in the sbx VM: start sshd directly, idempotently, per lifecycle run.
+ensure_sshd() {
+  # shellcheck disable=SC2016 # the guard must run inside the sandbox, not locally
+  sbx exec "$1" -- sudo sh -c 'pgrep -x sshd >/dev/null 2>&1 || { mkdir -p /run/sshd; /usr/sbin/sshd -p 2222; }' 1>&2 \
+    || fail "could not start sshd inside sandbox $1"
+}
+
+ensure_port_published() {
+  _p="$(project_host_port "$1")"
+  sbx ports "$1" 2>/dev/null | awk -v p="$_p" '$1=="127.0.0.1" && $2==p && $3==2222 { found=1 } END { exit !found }' \
+    || sbx ports "$1" --publish "$_p:2222" 1>&2 \
+    || fail "could not publish sandbox SSH port $_p"
+  printf '%s\n' "$_p"
 }
 
 emit_connection_json() {
   _name="$1"
-  _host="$(ssh_cfg "$_name" hostname)"; _port="$(ssh_cfg "$_name" port)"
-  _user="$(ssh_cfg "$_name" user)"; _idfile="$(ssh_cfg "$_name" identityfile)"
-  _proxy="$(ssh_cfg "$_name" proxycommand)"
-  { [ -n "$_host" ] && [ -n "$_port" ]; } \
-    || fail "could not resolve SSH config for $_name.sbx — did 'sbx setup ssh' run?"
-  case "$_port" in *[!0-9]*) fail "resolved SSH port '$_port' is not numeric" ;; esac
-  # Orca expands only %h/%p in proxy commands, never %n (spike finding):
-  # pre-expand every token so the emitted command contains no % at all.
-  _proxy="$(printf '%s' "$_proxy" | sed "s/%[nh]/$_name.sbx/g")"
+  _port="$(ensure_port_published "$_name")"
   # shellcheck disable=SC2016 # $HOME must expand inside the sandbox, not locally
   _rhome="$(sbx exec "$_name" -- sh -c 'printf %s "$HOME"')"
   [ -n "$_rhome" ] || fail "could not resolve \$HOME inside sandbox $_name"
-  _extra=""
-  # sbx auth rides the proxy tunnel: identityfile resolves to /dev/null — omit
-  # it entirely (Orca must not try to load /dev/null as a private key).
-  if [ -n "$_idfile" ] && [ "$_idfile" != "/dev/null" ]; then
-    # shellcheck disable=SC2088 # matching a literal leading ~/ from ssh -G output
-    case "$_idfile" in "~/"*) _idfile="$HOME/${_idfile#\~/}" ;; esac
-    _extra="$_extra,\"identityFile\":\"$(printf '%s' "$_idfile" | json_escape)\",\"identitiesOnly\":true"
-  fi
-  { [ -n "$_proxy" ] && [ "$_proxy" != "none" ]; } \
-    && _extra="$_extra,\"proxyCommand\":\"$(printf '%s' "$_proxy" | json_escape)\""
-  printf '{"schemaVersion":1,"connection":{"type":"ssh","projectRoot":"%s/project","target":{"label":"Docker Sandbox","configHost":"%s.sbx","host":"%s","port":%s,"username":"%s"%s}},"userData":{"sandboxName":"%s"}}\n' \
-    "$_rhome" "$_name" "$_host" "$_port" "$_user" "$_extra" "$_name"
+  _user="$(sbx exec "$_name" -- whoami)"
+  [ -n "$_user" ] || fail "could not resolve user inside sandbox $_name"
+  _idfile="$HOME/.orca-sbx/$_name/id_ed25519"
+  [ -f "$_idfile" ] || fail "missing SSH key $_idfile — delete and recreate the workspace"
+  printf '{"schemaVersion":1,"connection":{"type":"ssh","projectRoot":"%s/project","target":{"label":"Docker Sandbox","host":"127.0.0.1","port":%s,"username":"%s","identityFile":"%s","identitiesOnly":true}},"userData":{"sandboxName":"%s"}}\n' \
+    "$_rhome" "$_port" "$_user" "$(printf '%s' "$_idfile" | json_escape)" "$_name"
 }

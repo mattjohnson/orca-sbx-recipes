@@ -12,7 +12,20 @@ if ! sandbox_exists "$NAME"; then
   # node is required by Orca's SSH relay). Exact syntax confirmed by the Task 1 spike.
   sbx create --name "$NAME" claude "$WORKROOT/workspace" 1>&2
 fi
-sbx setup ssh 1>&2
+
+# Relay needs a C++ toolchain (node-pty source build); direct SSH needs sshd.
+# No systemd in the VM: sshd is started by ensure_sshd, not a service.
+sbx exec "$NAME" -- sh -c 'command -v g++ >/dev/null 2>&1 && test -x /usr/sbin/sshd || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential openssh-server; }' 1>&2 \
+  || fail "could not install build tools/sshd in sandbox (does the sbx network policy allow Ubuntu repos?)"
+
+# Per-project keypair: private half stays on the host, public half authorized in the VM.
+if [ ! -f "$WORKROOT/id_ed25519" ]; then
+  ssh-keygen -q -t ed25519 -f "$WORKROOT/id_ed25519" -N '' </dev/null 1>&2
+fi
+PUB="$(cat "$WORKROOT/id_ed25519.pub")"
+sbx exec "$NAME" -- sh -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && { grep -qF '$PUB' ~/.ssh/authorized_keys || printf '%s\n' '$PUB' >> ~/.ssh/authorized_keys; }" 1>&2 \
+  || fail "could not install SSH key in sandbox"
+ensure_sshd "$NAME"
 
 # shellcheck disable=SC2016 # $HOME must expand inside the sandbox, not locally
 RHOME="$(sbx exec "$NAME" -- sh -c 'printf %s "$HOME"')"
@@ -24,11 +37,6 @@ if ! sbx exec "$NAME" -- test -d "$RHOME/project/.git"; then
   sbx exec "$NAME" -- git clone "$URL" "$RHOME/project" 1>&2 \
     || fail "clone failed inside sandbox — check 'sbx secret set github' or SSH agent forwarding"
 fi
-
-# Orca's SSH relay builds node-pty from source on first connect; the claude
-# template ships no C++ toolchain (spike: `make: g++` exit 127). agent has sudo.
-sbx exec "$NAME" -- sh -c 'command -v g++ >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq build-essential; }' 1>&2 \
-  || fail "could not install build tools in sandbox (does the sbx network policy allow Ubuntu repos?)"
 
 # Orca's project flows require a git author identity on the SSH host (spike:
 # create-project preflight rejects without it). Mirror the desktop's identity.
