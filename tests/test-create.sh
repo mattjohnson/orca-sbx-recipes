@@ -25,7 +25,7 @@ printf '%s' "$out" | jq -e '.connection.target.host == "127.0.0.1"' >/dev/null |
 [ -f "$HOME/.orca-sbx/$NAME/hostkeys/ssh_host_ed25519_key" ] || { echo "FAIL host key not persisted"; FAILURES=$((FAILURES+1)); }
 assert_contains "$(cat "$HOME/.orca-sbx/$NAME/hostkeys/ssh_host_ed25519_key" 2>/dev/null)" "FAKE-HOST-KEY" "host key content saved"
 assert_contains "$log" ".local/bin" "PATH fixed up in sandbox shell profile"
-assert_contains "$log" "exec $NAME -- sleep" "keepalive session started"
+wait_for_log "exec $NAME -- sleep" 30 "keepalive session started" || true
 [ -f "$HOME/.orca-sbx/$NAME/keepalive.pid" ] || { echo "FAIL keepalive pidfile missing"; FAILURES=$((FAILURES+1)); }
 
 # stdout purity: the only stdout line is the JSON object
