@@ -8,4 +8,5 @@ sandbox_exists "$NAME" \
   || fail "sandbox $NAME no longer exists (removed manually?); delete this workspace and create a new one"
 # v0.38 has no `sbx start`; `sbx exec` auto-starts a stopped sandbox (~2s, spike).
 sbx exec "$NAME" -- true 1>&2 || fail "sandbox $NAME failed to start"
+ensure_sshd "$NAME"
 emit_connection_json "$NAME"
