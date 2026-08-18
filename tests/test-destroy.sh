@@ -14,8 +14,10 @@ case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM with worktrees left
 
 # last workspace (main worktree only) → VM + host dir removed; keepalive stopped
 : > "$SBX_LOG"; export STUB_WORKTREES=1
-sleep 30 &
-KEEPALIVE_PID=$!
+# subshell keeps the backgrounded sleep out of this script's own job table,
+# so its later kill doesn't print job-control "Terminated: 15 sleep 30" noise
+(sleep 30 & echo $! > "$TESTTMP/keepalive.pid") 2>/dev/null
+KEEPALIVE_PID="$(cat "$TESTTMP/keepalive.pid")"
 printf '%s' "$KEEPALIVE_PID" > "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid"
 printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy rc 2"; FAILURES=$((FAILURES+1)); }
 assert_contains "$(cat "$SBX_LOG")" "rm -f orca-p-abc123def456" "sbx rm called"
@@ -41,5 +43,16 @@ printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destr
 case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM on failed query"; FAILURES=$((FAILURES+1));; esac
 [ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed on failed query"; FAILURES=$((FAILURES+1)); }
 unset STUB_WT_LIST_FAIL
+
+# `sbx ls --json` itself fails (daemon down/logged out) → fail-open: keep the
+# VM *and* the keypair/hostkeys, don't take the "already gone" branch, exit 0
+: > "$HOME/.orca-sbx/orca-p-abc123def456/id_ed25519"
+: > "$SBX_LOG"
+export STUB_LS_FAIL=1
+printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy-lsfail rc"; FAILURES=$((FAILURES+1)); }
+case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM when ls --json itself failed"; FAILURES=$((FAILURES+1));; esac
+[ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed when ls --json itself failed"; FAILURES=$((FAILURES+1)); }
+[ -f "$HOME/.orca-sbx/orca-p-abc123def456/id_ed25519" ] || { echo "FAIL keypair deleted while VM still lives"; FAILURES=$((FAILURES+1)); }
+unset STUB_LS_FAIL
 
 finish

@@ -7,6 +7,10 @@ if ! command -v sbx >/dev/null 2>&1; then
   printf 'orca-sbx: sbx CLI missing; nothing to destroy\n' >&2
   exit 0
 fi
+if ! sbx ls --json >/dev/null 2>&1; then
+  printf 'orca-sbx: cannot query sandboxes (is sbx logged in and its daemon running?); keeping %s — retry the delete later\n' "$NAME" >&2
+  exit 0
+fi
 if ! sandbox_exists "$NAME"; then
   printf 'orca-sbx: sandbox %s already gone\n' "$NAME" >&2
   stop_keepalive "$NAME"

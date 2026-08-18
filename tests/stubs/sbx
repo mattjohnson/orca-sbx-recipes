@@ -5,7 +5,7 @@ printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
 case "$*" in
   "secret ls") printf '%s\n' "${STUB_SECRETS:-}" ;;
   version) printf '%s\n' "${STUB_VERSION:-sbx version 0.38.0}" ;;
-  "ls --json") printf '%s\n' "$STUB_LS_JSON" ;;
+  "ls --json") [ -z "${STUB_LS_FAIL:-}" ] && printf '%s\n' "$STUB_LS_JSON" || exit 1 ;;
   create*) : ;;
   "rm -f "*) : ;;
   *'printf %s "$HOME"'*) printf '/home/agent' ;;

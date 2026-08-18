@@ -1,5 +1,7 @@
 # orca-sbx-recipes: Project-Shared Docker Sandbox for Orca
 
+> **Superseded:** historical design document — the connection layer shipped differently (direct TCP via in-VM sshd, not the sbx SSH proxy described below); `docs/spike/2026-08-17-findings.md` is authoritative for what actually shipped.
+
 - **Date:** 2026-08-17
 - **Status:** Approved design, pre-implementation
 - **Answers:** [stablyai/orca#13665](https://github.com/stablyai/orca/issues/13665) (Docker Sandboxes support), aligned with [stablyai/orca#12756](https://github.com/stablyai/orca/issues/12756) (Docker support "via extension")

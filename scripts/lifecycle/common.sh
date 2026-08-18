@@ -64,6 +64,7 @@ ensure_port_published() {
 # direct-TCP session through a published port is invisible to it. Hold one
 # long-lived exec session per project as a keepalive.
 ensure_keepalive() {
+  mkdir -p "$HOME/.orca-sbx/$1"
   _pidfile="$HOME/.orca-sbx/$1/keepalive.pid"
   if [ -f "$_pidfile" ] && kill -0 "$(cat "$_pidfile")" 2>/dev/null; then
     return 0

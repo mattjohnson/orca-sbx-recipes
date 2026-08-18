@@ -3,8 +3,12 @@
 set -u
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin"
 BAD=0
-ok()  { printf '  \342\234\223 %s\n' "$1"; }
-bad() { BAD=1; printf '  \342\234\227 %s\n      fix: %s\n' "$1" "$2"; }
+WARNED=0
+ok()   { printf '  \342\234\223 %s\n' "$1"; }
+bad()  { BAD=1; printf '  \342\234\227 %s\n      fix: %s\n' "$1" "$2"; }
+# advisory: missing item doesn't block recipe use (e.g. public-repo clones
+# need no github secret; /login substitutes for the anthropic secret)
+warn() { WARNED=1; printf '  ! %s\n      fix: %s\n' "$1" "$2"; }
 
 echo "orca-sbx-recipes prerequisites:"
 
@@ -34,15 +38,17 @@ fi
 SECRETS="$(sbx secret ls 2>/dev/null || true)"
 case "$SECRETS" in
   *github*) ok "github secret configured" ;;
-  *) bad "github secret configured" "gh auth token | sbx secret set github" ;;
+  *) warn "github secret configured" "gh auth token | sbx secret set github   # optional — only needed to clone private repos" ;;
 esac
 case "$SECRETS" in
   *anthropic*) ok "anthropic secret configured" ;;
-  *) bad "anthropic secret configured" "sbx secret set anthropic   # or run /login inside the sandboxed claude once" ;;
+  *) warn "anthropic secret configured" "sbx secret set anthropic   # optional — or run /login inside the sandboxed claude once" ;;
 esac
 
-if [ "$BAD" -eq 0 ]; then
+if [ "$BAD" -eq 0 ] && [ "$WARNED" -eq 0 ]; then
   echo "All prerequisites satisfied."
+elif [ "$BAD" -eq 0 ]; then
+  echo "Core prerequisites satisfied; optional items missing above (see the ! marks) — the recipe still works without them."
 else
   echo "Fix the items above, then re-run: sh scripts/bootstrap.sh"
 fi
