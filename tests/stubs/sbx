@@ -1,0 +1,19 @@
+#!/bin/sh
+printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
+[ -n "${STUB_LS_JSON:-}" ] || STUB_LS_JSON='{"sandboxes":[]}'
+case "$*" in
+  "ls --json") printf '%s\n' "$STUB_LS_JSON" ;;
+  "setup ssh") : ;;
+  create*) : ;;
+  "rm -f "*) : ;;
+  *'printf %s "$HOME"'*) printf '/home/agent' ;;
+  *"test -d"*) exit "${STUB_HAS_CLONE:-1}" ;;
+  *"git clone"*) : ;;
+  *"command -v g++"*) exit "${STUB_HAS_GXX:-0}" ;;
+  *"worktree prune"*) : ;;
+  *"worktree list --porcelain"*)
+    i=0; while [ "$i" -lt "${STUB_WORKTREES:-1}" ]; do
+      printf 'worktree /home/agent/wt%s\nHEAD 0000\n\n' "$i"; i=$((i+1)); done ;;
+  *" true") exit 0 ;;
+  *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
+esac

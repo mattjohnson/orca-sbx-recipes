@@ -1,0 +1,12 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck sources
+        run: |
+          shellcheck -s sh scripts/lifecycle/*.sh tests/harness.sh tests/stubs/* tests/run.sh tests/test-*.sh
+      - name: tests
+        run: sh tests/run.sh
