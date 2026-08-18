@@ -18,6 +18,24 @@ fi
 sbx exec "$NAME" -- sh -c 'command -v g++ >/dev/null 2>&1 && test -x /usr/sbin/sshd || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential openssh-server; }' 1>&2 \
   || fail "could not install build tools/sshd in sandbox (does the sbx network policy allow Ubuntu repos?)"
 
+# Stable host key per project: a recreated VM reuses it, so known_hosts
+# entries for 127.0.0.1:<port> never go stale. Other key types are removed
+# so clients always negotiate the persisted ed25519 key.
+sbx exec "$NAME" -- sudo rm -f /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_rsa_key.pub /etc/ssh/ssh_host_ecdsa_key /etc/ssh/ssh_host_ecdsa_key.pub 1>&2
+if [ -f "$WORKROOT/hostkeys/ssh_host_ed25519_key" ]; then
+  for b in ssh_host_ed25519_key ssh_host_ed25519_key.pub; do
+    base64 < "$WORKROOT/hostkeys/$b" | sbx exec -i "$NAME" -- sudo sh -c "base64 -d > /etc/ssh/$b && chmod 600 /etc/ssh/$b" 1>&2 \
+      || fail "could not restore host key $b into sandbox"
+  done
+else
+  mkdir -p "$WORKROOT/hostkeys"
+  for b in ssh_host_ed25519_key ssh_host_ed25519_key.pub; do
+    sbx exec "$NAME" -- sudo cat "/etc/ssh/$b" > "$WORKROOT/hostkeys/$b" \
+      || fail "could not save host key $b from sandbox"
+  done
+  chmod 600 "$WORKROOT/hostkeys/ssh_host_ed25519_key"
+fi
+
 # Per-project keypair: private half stays on the host, public half authorized in the VM.
 if [ ! -f "$WORKROOT/id_ed25519" ]; then
   ssh-keygen -q -t ed25519 -f "$WORKROOT/id_ed25519" -N '' </dev/null 1>&2

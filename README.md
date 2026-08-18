@@ -4,14 +4,15 @@
 
 ## How it works
 
-Each Orca project gets exactly one [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`) microVM, shared by every worktree and workspace opened against that project — not one VM per workspace. Orca's `create` recipe command reuses or provisions the VM with `sbx create`, then runs `sbx setup ssh` so Orca can reach it as a normal SSH host at `<name>.sbx`. The project repo is cloned once onto the VM's own disk, not a virtiofs mount, so worktrees Orca creates on top of it get native git performance instead of a mounted filesystem. Agents (Claude Code and friends) run in ordinary Orca terminals inside the VM, so hooks, busy/idle status, and AI Vault all work exactly as they do on any SSH host. Credentials never enter the VM: `sbx`'s host-side proxy injects secrets into outbound requests at the point of use, so nothing an agent does inside the sandbox exposes your tokens.
+Each Orca project gets exactly one [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`) microVM, shared by every worktree and workspace opened against that project — not one VM per workspace. Orca's `create` recipe command reuses or provisions the VM with `sbx create`, then — since the VM ships with neither `sshd` nor systemd — installs `openssh-server` and starts `sshd -p 2222` directly; every lifecycle command re-ensures it's running, since nothing restarts it for you across a VM stop/start. Auth uses a per-project ed25519 keypair generated on the host under `~/.orca-sbx/<name>/` and installed into the VM's `authorized_keys`; the VM's own `sshd` host key is persisted the same way, so recreating the VM doesn't retire a trusted `known_hosts` entry. The recipe publishes that `sshd` port to a deterministic loopback port on the host (`sbx ports <name> --publish 30000-39999:2222`, derived from a hash of the project) so the same port survives VM restarts, and Orca connects to it over plain TCP with the project key — no SSH proxy anywhere in the path, so Orca's normal SSH connection multiplexing (ControlMaster) just works. The project repo is cloned once onto the VM's own disk, not a virtiofs mount, so worktrees Orca creates on top of it get native git performance instead of a mounted filesystem. Agents (Claude Code and friends) run in ordinary Orca terminals inside the VM, so hooks, busy/idle status, and AI Vault all work exactly as they do on any SSH host. Credentials never enter the VM: `sbx`'s host-side proxy injects secrets into outbound requests at the point of use, so nothing an agent does inside the sandbox exposes your tokens.
 
 ```
 Host (macOS/Linux)                          sbx microVM  orca-p-<hash>
 ┌─────────────────────────────┐             ┌──────────────────────────────┐
-│ Orca desktop                │   SSH via   │ sshd ⟵ sbx setup ssh         │
-│  recipe create/resume/…  ───┼──sbx CLI──▶ │ node (runs Orca SSH relay)   │
-│  SSH relay (SFTP + node) ───┼─<name>.sbx─▶│ ~/project        (main clone)│
+│ Orca desktop                │             │ sshd :2222 (no systemd)      │
+│  recipe create/resume/…  ───┼──sbx CLI──▶ │ installs sshd, keys, port    │
+│  SSH relay (SFTP + node) ───┼──127.0.0.1─▶│ node (runs Orca SSH relay)   │
+│ per-project ed25519 key     │   :<port>   │ ~/project        (main clone)│
 │  N workspaces, N hidden     │             │ + linked worktrees (created  │
 │  runtime-owned SSH targets  │             │   by Orca's remote git flow) │
 │                             │             │ agent CLIs (claude, …)       │
@@ -68,7 +69,7 @@ The first workspace you open this way boots the VM (a couple of minutes, cold) a
 
 **Relay never becomes ready** — Orca's SSH relay needs a working Node inside the VM; check with `sbx exec <name> -- node --version`. `create` also installs `build-essential` on first connect (needed to build node-pty); if that step failed, your `sbx` network policy may be blocking apt access.
 
-**Workspace creation fails with a relay upload error mentioning exit 255** — a known caveat under live validation: Orca's connection-reuse (SSH multiplexing) is incompatible with the sbx proxy, and the recipe's auto-registered SSH target currently has no in-app toggle to disable it. If you hit this, please open an issue on this repo; an upstream Orca change is planned.
+**Workspace creation fails with a relay upload error mentioning exit 255** — this was a caveat of the earlier sbx-proxy connection design (Orca's SSH connection-reuse/multiplexing was incompatible with the proxy); it's eliminated by the direct-TCP connection this recipe now uses. If you still see it, the sandbox's `sshd` or its published port most likely needs a refresh — put the workspace to sleep and wake it again (that re-runs `resume`, which re-ensures `sshd` and re-emits the connection). If it persists, open an issue on this repo.
 
 **Windows** — unsupported in v1; the recipe's lifecycle commands target macOS/Linux shells only.
 
