@@ -23,7 +23,7 @@ Host (macOS/Linux)                          sbx microVM  orca-p-<hash>
 
 ## Prerequisites
 
-- macOS 14+ on Apple silicon, or Ubuntu 24.04+ (or Rocky 8) with KVM. sbx doesn't support Intel Macs or Windows — see Limitations.
+- macOS 14+ on Apple silicon, or Ubuntu 24.04+ (or Rocky 8) with KVM. sbx doesn't support Intel Macs; this recipe pack is macOS/Linux-only in v1 — see Limitations.
 - A free Docker account (`sbx login` requires one).
 - [Docker Sandboxes (`sbx`)](https://docs.docker.com/ai/sandboxes/install/) installed and logged in: `sbx login`, then `sbx policy init balanced` (deny-by-default network egress with an AI/package-registry allowlist).
 - GitHub access inside the sandbox: `gh auth token | sbx secret set github`.
@@ -34,7 +34,7 @@ Run `sh scripts/bootstrap.sh` to check all of the above non-destructively — it
 
 ## Install
 
-1. Orca → Settings → Experimental → enable **Per-Workspace Environments** (`experimentalEphemeralVms`).
+1. Orca → Settings → Experimental → enable **Cloud VM** (the per-workspace environments feature; flag `experimentalEphemeralVms`).
 2. Orca → Settings → Plugins → install from git URL: `https://github.com/mattjohnson/orca-sbx-recipes` (a local path works too, for development).
 3. Approve the consent dialog — it previews the exact lifecycle shell commands the plugin will run before you accept them.
 
@@ -68,7 +68,7 @@ The first workspace you open this way boots the VM (a couple of minutes, cold) a
 
 **Relay never becomes ready** — Orca's SSH relay needs a working Node inside the VM; check with `sbx exec <name> -- node --version`. `create` also installs `build-essential` on first connect (needed to build node-pty); if that step failed, your `sbx` network policy may be blocking apt access.
 
-**Connect fails with "relay upload failed (exit 255)"** — known caveat, still being validated in live testing: Orca's SSH connection-reuse (multiplexing) is incompatible with the sbx SSH proxy. On the SSH target, turn off **"Reuse SSH connection for faster setup"**.
+**Workspace creation fails with a relay upload error mentioning exit 255** — a known caveat under live validation: Orca's connection-reuse (SSH multiplexing) is incompatible with the sbx proxy, and the recipe's auto-registered SSH target currently has no in-app toggle to disable it. If you hit this, please open an issue on this repo; an upstream Orca change is planned.
 
 **Windows** — unsupported in v1; the recipe's lifecycle commands target macOS/Linux shells only.
 
