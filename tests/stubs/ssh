@@ -1,0 +1,6 @@
+#!/bin/sh
+# only supports: ssh -G <alias>
+[ "$1" = "-G" ] || exit 1
+printf 'user _default_user_\nhostname %s\nport 22\nidentityfile /dev/null\n' "$2"
+printf 'proxycommand %s\n' "${STUB_SSH_PROXY:-"\"/opt/homebrew/bin/sbx\" ssh proxy %n"}"
+exit 0
