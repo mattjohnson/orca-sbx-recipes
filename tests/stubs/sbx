@@ -13,6 +13,7 @@ case "$*" in
   *"command -v g++"*) exit "${STUB_HAS_GXX:-0}" ;;
   *"worktree prune"*) : ;;
   *"worktree list --porcelain"*)
+    if [ -n "${STUB_WT_LIST_FAIL:-}" ]; then exit 1; fi
     i=0; while [ "$i" -lt "${STUB_WORKTREES:-1}" ]; do
       printf 'worktree /home/agent/wt%s\nHEAD 0000\n\n' "$i"; i=$((i+1)); done ;;
   *" true") exit 0 ;;
