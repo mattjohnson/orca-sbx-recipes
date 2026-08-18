@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "id": "orca-sbx-recipes",
+  "id": "sbx-recipes",
   "publisher": "mattjohnson",
   "name": "Docker Sandbox Recipes",
   "version": "0.1.0",
