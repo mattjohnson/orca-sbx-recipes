@@ -29,8 +29,10 @@ jobs:
         run: sh tests/run.sh
       - name: shellcheck generated recipe commands
         run: |
+          # SC2317: each generated command embeds the shared preamble; helpers a
+          # given command does not call read as "unreachable" to newer shellcheck.
           for f in create suspend resume destroy; do
-            jq -r ".$f" recipes/sbx-project-sandbox.json | shellcheck -s sh -
+            jq -r ".$f" recipes/sbx-project-sandbox.json | shellcheck -s sh -e SC2317 -
           done
       - name: regen drift check
         run: bash scripts/build-recipe.sh && git diff --exit-code recipes/
