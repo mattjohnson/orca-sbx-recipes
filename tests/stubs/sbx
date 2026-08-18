@@ -1,0 +1,35 @@
+#!/bin/sh
+printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
+[ -n "${STUB_LS_JSON:-}" ] || STUB_LS_JSON='{"sandboxes":[]}'
+# shellcheck disable=SC2016 # matching literal remote commands in stub arguments
+case "$*" in
+  "secret ls") printf '%s\n' "${STUB_SECRETS:-}" ;;
+  version) printf '%s\n' "${STUB_VERSION:-sbx version 0.38.0}" ;;
+  "ls --json") [ -z "${STUB_LS_FAIL:-}" ] && printf '%s\n' "$STUB_LS_JSON" || exit 1 ;;
+  create*) : ;;
+  "rm -f "*) : ;;
+  *'printf %s "$HOME"'*) printf '/home/agent' ;;
+  *"test -d"*) exit "${STUB_HAS_CLONE:-1}" ;;
+  *"git clone"*) : ;;
+  *"command -v g++"*) exit "${STUB_HAS_GXX:-0}" ;;
+  *"worktree prune"*) : ;;
+  *"worktree list --porcelain"*)
+    if [ -n "${STUB_WT_LIST_FAIL:-}" ]; then exit 1; fi
+    i=0; while [ "$i" -lt "${STUB_WORKTREES:-1}" ]; do
+      printf 'worktree /home/agent/wt%s\nHEAD 0000\n\n' "$i"; i=$((i+1)); done ;;
+  *" true") exit 0 ;;
+  ports*--publish*) : ;;
+  ports*)
+    printf 'HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n'
+    if [ -n "${STUB_PORT_PUBLISHED:-}" ]; then
+      printf '127.0.0.1   %s       2222             tcp\n' "${STUB_PORT_PUBLISHED}"
+    fi ;;
+  *"pgrep -x sshd"*) exit 0 ;;
+  *whoami*) printf 'agent' ;;
+  *authorized_keys*) : ;;
+  *"rm -f /etc/ssh"*) : ;;
+  *"base64 -d"*) : ;;
+  *"sudo cat /etc/ssh"*) printf 'FAKE-HOST-KEY-%s\n' "${STUB_HOSTKEY_TAG:-1}" ;;
+  *"sleep 2147483647"*) : ;;
+  *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
+esac
