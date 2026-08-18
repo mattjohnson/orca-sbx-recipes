@@ -13,7 +13,7 @@ export STUB_LS_JSON='{"sandboxes":[]}' STUB_HAS_CLONE=1
 out="$(run_lifecycle create 2>"$TESTTMP/err")"
 log="$(cat "$SBX_LOG")"
 assert_contains "$log" "create --name $NAME" "sbx create called"
-assert_contains "$log" "git clone https://example.com/repo.git /home/agent/project" "clone called"
+assert_contains "$log" "git clone -- https://example.com/repo.git /home/agent/project" "clone called"
 assert_contains "$log" "command -v g++" "toolchain+sshd ensure called"
 assert_contains "$log" "authorized_keys" "ssh key installed"
 assert_contains "$log" "--publish $PORT:2222" "port published"
@@ -45,12 +45,23 @@ printf '%s' "$out2" | jq -e '.connection.type == "ssh"' >/dev/null || { echo "FA
 # recreate with persisted hostkeys: sandbox gone but $WORKROOT/hostkeys survives on the
 # host → restore path runs (base64 -d), no re-save (no 'sudo cat /etc/ssh')
 : > "$SBX_LOG"
-# shellcheck disable=SC2090 # JSON variable expansion intended at runtime
+# shellcheck disable=SC2089,SC2090 # JSON variable expansion intended at runtime
 export STUB_LS_JSON='{"sandboxes":[]}' STUB_HAS_CLONE=1
 out3="$(run_lifecycle create 2>/dev/null)"
 log3="$(cat "$SBX_LOG")"
 assert_contains "$log3" "base64 -d" "host key restored on recreate"
 case "$log3" in *"sudo cat /etc/ssh"*) echo "FAIL recreate path re-saved host key"; FAILURES=$((FAILURES+1));; esac
 printf '%s' "$out3" | jq -e '.connection.type == "ssh"' >/dev/null || { echo "FAIL recreate JSON: $out3"; FAILURES=$((FAILURES+1)); }
+
+# ORCA_REPO_URL, when set, is preferred over `git remote get-url origin`
+: > "$SBX_LOG"
+# shellcheck disable=SC2089,SC2090 # JSON variable expansion intended at runtime
+export STUB_LS_JSON='{"sandboxes":[]}' STUB_HAS_CLONE=1 ORCA_REPO_URL="https://orca-provided.example/repo-url.git"
+out4="$(run_lifecycle create 2>/dev/null)"
+log4="$(cat "$SBX_LOG")"
+assert_contains "$log4" "git clone -- https://orca-provided.example/repo-url.git" "ORCA_REPO_URL preferred over git remote"
+case "$log4" in *"example.com/repo.git"*) echo "FAIL fell back to git remote origin despite ORCA_REPO_URL set"; FAILURES=$((FAILURES+1));; esac
+unset ORCA_REPO_URL
+printf '%s' "$out4" | jq -e '.connection.type == "ssh"' >/dev/null || { echo "FAIL ORCA_REPO_URL JSON: $out4"; FAILURES=$((FAILURES+1)); }
 
 finish

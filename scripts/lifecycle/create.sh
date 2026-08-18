@@ -5,12 +5,14 @@ require_sbx
 NAME="$(sandbox_name)"
 WORKROOT="$HOME/.orca-sbx/$NAME"
 mkdir -p "$WORKROOT/workspace"
+chmod 700 "$WORKROOT"
 
 if ! sandbox_exists "$NAME"; then
   printf 'orca-sbx: creating sandbox %s\n' "$NAME" >&2
   # claude agent selects docker/sandbox-templates:claude-code (ships claude + node;
   # node is required by Orca's SSH relay). Exact syntax confirmed by the Task 1 spike.
-  sbx create --name "$NAME" claude "$WORKROOT/workspace" 1>&2
+  sbx create --name "$NAME" claude "$WORKROOT/workspace" 1>&2 \
+    || fail "sandbox create failed — see output above"
 fi
 
 # Relay needs a C++ toolchain (node-pty source build); direct SSH needs sshd.
@@ -32,15 +34,19 @@ if [ -f "$WORKROOT/hostkeys/ssh_host_ed25519_key" ]; then
 else
   mkdir -p "$WORKROOT/hostkeys"
   for b in ssh_host_ed25519_key ssh_host_ed25519_key.pub; do
-    sbx exec "$NAME" -- sudo cat "/etc/ssh/$b" > "$WORKROOT/hostkeys/$b" \
+    # touch+chmod before writing so the private key is never briefly
+    # world/group-readable between file creation and the mode fix.
+    : > "$WORKROOT/hostkeys/$b"
+    chmod 600 "$WORKROOT/hostkeys/$b"
+    sbx exec "$NAME" -- sudo cat "/etc/ssh/$b" >> "$WORKROOT/hostkeys/$b" \
       || fail "could not save host key $b from sandbox"
   done
-  chmod 600 "$WORKROOT/hostkeys/ssh_host_ed25519_key"
 fi
 
 # Per-project keypair: private half stays on the host, public half authorized in the VM.
 if [ ! -f "$WORKROOT/id_ed25519" ]; then
-  ssh-keygen -q -t ed25519 -f "$WORKROOT/id_ed25519" -N '' </dev/null 1>&2
+  ssh-keygen -q -t ed25519 -f "$WORKROOT/id_ed25519" -N '' </dev/null 1>&2 \
+    || fail "could not generate SSH key"
 fi
 PUB="$(cat "$WORKROOT/id_ed25519.pub")"
 sbx exec "$NAME" -- sh -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && { grep -qF '$PUB' ~/.ssh/authorized_keys || printf '%s\n' '$PUB' >> ~/.ssh/authorized_keys; }" 1>&2 \
@@ -51,10 +57,13 @@ ensure_sshd "$NAME"
 RHOME="$(sbx exec "$NAME" -- sh -c 'printf %s "$HOME"')"
 [ -n "$RHOME" ] || fail "could not resolve \$HOME inside sandbox $NAME"
 if ! sbx exec "$NAME" -- test -d "$RHOME/project/.git"; then
-  URL="$(git -C "$ORCA_REPO_PATH" remote get-url origin)" \
-    || fail "the source repo has no 'origin' remote; set one, or clone into the sandbox manually with 'sbx exec'"
+  URL="${ORCA_REPO_URL:-}"
+  if [ -z "$URL" ]; then
+    URL="$(git -C "$ORCA_REPO_PATH" remote get-url origin)" \
+      || fail "the source repo has no 'origin' remote and Orca provided no URL; add a remote, or clone into the sandbox manually with 'sbx exec'"
+  fi
   printf 'orca-sbx: cloning %s into %s\n' "$URL" "$NAME" >&2
-  sbx exec "$NAME" -- git clone "$URL" "$RHOME/project" 1>&2 \
+  sbx exec "$NAME" -- git clone -- "$URL" "$RHOME/project" 1>&2 \
     || fail "clone failed inside sandbox — check 'sbx secret set github' or SSH agent forwarding"
 fi
 

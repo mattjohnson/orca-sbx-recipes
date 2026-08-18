@@ -18,7 +18,7 @@ jq -n \
   schemaVersion: 1,
   id: "sbx-project-sandbox",
   name: "Docker Sandbox (project-shared)",
-  description: "One Docker Sandboxes (sbx) microVM per project; all worktrees share it. Agents run inside the VM; credentials stay host-side via the sbx proxy.",
+  description: "One Docker Sandboxes (sbx) microVM per project; all worktrees share it. Agents run inside the VM over a direct SSH connection; secrets reach them via the sbx host-side credential proxy, not stored in the VM.",
   create: $create,
   suspend: $suspend,
   resume: $resume,

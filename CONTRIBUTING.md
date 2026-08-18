@@ -18,7 +18,7 @@ bash scripts/build-recipe.sh && git diff --exit-code recipes/
 
 - `scripts/lifecycle/` — the actual `create`/`suspend`/`resume`/`destroy` logic, written in POSIX `sh`. These run *inside* the user's environment at recipe-execution time, so no `jq`, `node`, or `python` at runtime — only what's guaranteed to exist on the host/VM shell.
 - `recipes/sbx-project-sandbox.json` is **generated** by `scripts/build-recipe.sh`, which inlines the lifecycle scripts into the plugin's recipe artifact. Never hand-edit it — edit the source in `scripts/lifecycle/`, regenerate, and commit the updated artifact alongside your change.
-- `tests/` runs the exact shipped command text (pulled from the generated artifact, not a copy) against `sbx`/`git` binaries stubbed onto `PATH` from `tests/stubs/`, so tests exercise what actually ships, not a reimplementation of it.
+- `tests/` runs the concatenated lifecycle sources (`scripts/lifecycle/common.sh` + the per-command script — the same text `scripts/build-recipe.sh` inlines into the artifact) against `sbx`/`git` binaries stubbed onto `PATH` from `tests/stubs/`. `tests/test-recipe-artifact.sh`'s drift check, plus `bash scripts/build-recipe.sh && git diff --exit-code recipes/`, make the generated artifact provably equivalent to what the tests exercise, so tests still cover what actually ships.
 
 ## Live-testing a change in Orca
 

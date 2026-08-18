@@ -1,5 +1,7 @@
 # orca-sbx-recipes Implementation Plan
 
+> **Superseded:** historical plan document — the connection layer shipped differently (direct TCP via in-VM sshd, not the sbx SSH proxy this plan targets); `docs/spike/2026-08-17-findings.md` is authoritative for what actually shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **Interactivity note:** Phase 0 (Tasks 1–3) and Phase 2 (Task 11) require Matt at the keyboard (browser OAuth login, Orca desktop UI). Run those inline with Matt present. Phase 1 (Tasks 4–10) is fully automatable and suits subagents.

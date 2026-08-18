@@ -30,4 +30,12 @@ jq -e '.manifestVersion == 1 and .pluginApi == 1
   and .contributes.vmRecipes == [{"path":"recipes/sbx-project-sandbox.json"}]' orca-plugin.json >/dev/null \
   || { echo "FAIL manifest"; FAILURES=$((FAILURES+1)); }
 
+# plugin identity: publisher/id are correct, and id doesn't use the orca-*
+# prefix reserved for stablyai (regression guard — Task 11 hit this live)
+jq -e '.publisher == "mattjohnson" and .id == "sbx-recipes"' orca-plugin.json >/dev/null \
+  || { echo "FAIL plugin publisher/id"; FAILURES=$((FAILURES+1)); }
+case "$(jq -r '.id' orca-plugin.json)" in
+  orca-*) echo "FAIL plugin id uses the reserved orca-* prefix"; FAILURES=$((FAILURES+1)) ;;
+esac
+
 finish
