@@ -1,5 +1,7 @@
 # orca-sbx-recipes
 
+[![CI](https://github.com/mattjohnson/orca-sbx-recipes/actions/workflows/ci.yml/badge.svg)](https://github.com/mattjohnson/orca-sbx-recipes/actions/workflows/ci.yml)
+
 **Docker Sandbox recipes for Orca — one sbx microVM per project; every worktree and agent runs inside it, your host stays safe.**
 
 ## How it works
@@ -82,3 +84,11 @@ The first workspace you open this way boots the VM (a couple of minutes, cold) a
 - v1 supports macOS and Linux hosts only.
 - `sbx` is pre-1.0 and this pack is validated against v0.38.0 (see `docs/spike/2026-08-17-findings.md`); CLI behavior can change between releases. `scripts/bootstrap.sh` checks the version floor and tells you how to fix it.
 - Every worktree in a project shares one VM — see Security model above.
+
+## Contributing
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the dev loop and PR expectations. Bugs and ideas: [open an issue](../../issues) (the templates ask for the diagnostics that matter). Security concerns: see [SECURITY.md](SECURITY.md) — please use private reporting for anything isolation-related.
+
+## License
+
+[MIT](LICENSE) © Matt Johnson

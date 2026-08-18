@@ -1,10 +1,27 @@
 name: ci
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: install shellcheck (macOS)
+        if: runner.os == 'macOS'
+        run: command -v shellcheck >/dev/null || brew install shellcheck
       - name: shellcheck sources
         run: |
           shellcheck -s sh scripts/lifecycle/*.sh scripts/bootstrap.sh tests/harness.sh tests/stubs/* tests/run.sh tests/test-*.sh
@@ -17,3 +34,12 @@ jobs:
           done
       - name: regen drift check
         run: bash scripts/build-recipe.sh && git diff --exit-code recipes/
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
