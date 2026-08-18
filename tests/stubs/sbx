@@ -1,6 +1,7 @@
 #!/bin/sh
 printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
 [ -n "${STUB_LS_JSON:-}" ] || STUB_LS_JSON='{"sandboxes":[]}'
+# shellcheck disable=SC2016 # matching literal remote commands in stub arguments
 case "$*" in
   "ls --json") printf '%s\n' "$STUB_LS_JSON" ;;
   "setup ssh") : ;;
