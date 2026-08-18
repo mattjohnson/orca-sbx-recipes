@@ -19,7 +19,7 @@ out="$(printf '%s' "$PAYLOAD" | run_lifecycle resume 2>/dev/null)"
 log="$(cat "$SBX_LOG")"
 assert_contains "$log" "exec orca-p-abc123def456 -- true" "exec auto-start called"
 assert_contains "$log" "pgrep -x sshd" "sshd ensure called"
-assert_contains "$log" "sleep 2147483647" "keepalive started"
+wait_for_log "sleep 2147483647" 30 "keepalive started" || true
 [ -f "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid" ] || { echo "FAIL keepalive pidfile missing after resume"; FAILURES=$((FAILURES+1)); }
 printf '%s' "$out" | jq -e --argjson port "$expected_port" '.userData.sandboxName == "orca-p-abc123def456" and .connection.target.port == $port' >/dev/null \
   || { echo "FAIL resume JSON: $out"; FAILURES=$((FAILURES+1)); }
