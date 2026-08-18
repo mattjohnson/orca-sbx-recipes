@@ -9,6 +9,7 @@ if ! command -v sbx >/dev/null 2>&1; then
 fi
 if ! sandbox_exists "$NAME"; then
   printf 'orca-sbx: sandbox %s already gone\n' "$NAME" >&2
+  stop_keepalive "$NAME"
   rm -rf "$HOME/.orca-sbx/$NAME"
   exit 0
 fi
@@ -22,6 +23,7 @@ WT_LIST="$(sbx exec "$NAME" -- git -C "$RHOME/project" worktree list --porcelain
 LINKED="$(printf '%s\n' "$WT_LIST" | grep -c '^worktree ' || true)"
 if [ "${LINKED:-0}" -le 1 ]; then
   printf 'orca-sbx: removing sandbox %s (last workspace)\n' "$NAME" >&2
+  stop_keepalive "$NAME"
   sbx rm -f "$NAME" 1>&2
   rm -rf "$HOME/.orca-sbx/$NAME"
 else

@@ -9,4 +9,5 @@ sandbox_exists "$NAME" \
 # v0.38 has no `sbx start`; `sbx exec` auto-starts a stopped sandbox (~2s, spike).
 sbx exec "$NAME" -- true 1>&2 || fail "sandbox $NAME failed to start"
 ensure_sshd "$NAME"
+ensure_keepalive "$NAME"
 emit_connection_json "$NAME"

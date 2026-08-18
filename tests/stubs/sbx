@@ -30,5 +30,6 @@ case "$*" in
   *"rm -f /etc/ssh"*) : ;;
   *"base64 -d"*) : ;;
   *"sudo cat /etc/ssh"*) printf 'FAKE-HOST-KEY-%s\n' "${STUB_HOSTKEY_TAG:-1}" ;;
+  *"sleep 2147483647"*) : ;;
   *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
 esac
