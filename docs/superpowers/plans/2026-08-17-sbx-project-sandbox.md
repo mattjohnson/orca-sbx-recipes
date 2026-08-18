@@ -24,6 +24,7 @@
 - Recipe result JSON must satisfy Orca's schema: `{"schemaVersion":1,"connection":{"type":"ssh","projectRoot":<abs path>,"target":{label,host,port,username,...}},"userData":{...}}` — `projectRoot` absolute, `port` a number.
 - Commit style: conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`), suffixed `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 - **Spike gate:** Tasks 4+ must not start until Task 3's decision gate records PASS in `docs/spike/2026-08-17-findings.md`.
+- **Carried risk (spike):** recipe-created runtime-owned SSH targets cannot set `systemSshConnectionReuse: false`; if their connect path uses system ssh with ControlMaster, it fails exit-255 (sbx proxy is mux-incompatible). Task 11 tests this empirically; fallback is the upstream schema addition drafted in Task 12.
 
 ---
 
@@ -162,7 +163,7 @@ git add -A && git commit -m "docs: spike decision gate result and plan reconcili
 **Interfaces:**
 - Produces (in `common.sh`, consumed by Tasks 5–7): `fail msg…`, `require_env`, `require_sbx`, `hash_cmd` (stdin→sha256 hex), `payload_sandbox_name` (stdin JSON→name or empty), `sandbox_name [payloadName]`, `sandbox_exists name`, `json_escape` (stdin filter), `ssh_cfg name key`, `emit_connection_json name`.
 - Produces (in `tests/harness.sh`, consumed by all test files): `$TESTTMP`, `$SBX_LOG`, `lifecycle_cmd name` (prints common.sh + script), `run_lifecycle name` (executes it via `sh -c`), `assert_eq got expected label`, `assert_contains haystack needle label`, `finish`.
-- Stub contract (env-driven): `STUB_LS_JSON` (output of `sbx ls --json`, default `[]`), `STUB_HAS_CLONE` (0 = `.git` exists in VM), `STUB_WORKTREES` (worktree count for `worktree list --porcelain`), `STUB_SSH_PROXY` (adds a `proxycommand` line to `ssh -G`); every sbx invocation appends `$*` as one line to `$SBX_LOG`.
+- Stub contract (env-driven): `STUB_LS_JSON` (output of `sbx ls --json`, default `{"sandboxes":[]}`), `STUB_HAS_CLONE` (0 = `.git` exists in VM), `STUB_WORKTREES` (worktree count for `worktree list --porcelain`), `STUB_HAS_GXX` (0 = g++ present in VM), `STUB_SSH_PROXY` (overrides the `proxycommand` line from `ssh -G`); every sbx invocation appends `$*` as one line to `$SBX_LOG`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -193,6 +194,9 @@ printf '%s' "$out" | jq -e '
   and (.connection.projectRoot | startswith("/"))
   and .connection.target.configHost == "orca-p-abc123def456.sbx"
   and (.connection.target.port | type == "number")
+  and (.connection.target.proxyCommand | endswith("orca-p-abc123def456.sbx"))
+  and (.connection.target.proxyCommand | contains("%") | not)
+  and (.connection.target | has("identityFile") | not)
   and .userData.sandboxName == "orca-p-abc123def456"' >/dev/null \
   || { echo "FAIL emit_connection_json shape: $out"; FAILURES=$((FAILURES+1)); }
 
@@ -219,19 +223,20 @@ assert_contains() { case "$1" in *"$2"*) ;; *) printf 'FAIL %s: [%s] not found\n
 finish() { if [ "$FAILURES" -eq 0 ]; then echo OK; else echo "$FAILURES failure(s)"; exit 1; fi; }
 ```
 
-`tests/stubs/sbx`:
+`tests/stubs/sbx` (shapes mirror real sbx v0.38 behavior recorded in docs/spike/2026-08-17-findings.md — `ls --json` returns an OBJECT, `exec` auto-starts):
 ```sh
 #!/bin/sh
 printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
+[ -n "${STUB_LS_JSON:-}" ] || STUB_LS_JSON='{"sandboxes":[]}'
 case "$*" in
-  "ls --json") printf '%s\n' "${STUB_LS_JSON:-[]}" ;;
+  "ls --json") printf '%s\n' "$STUB_LS_JSON" ;;
   "setup ssh") : ;;
   create*) : ;;
-  start*) : ;;
   "rm -f "*) : ;;
   *'printf %s "$HOME"'*) printf '/home/agent' ;;
   *"test -d"*) exit "${STUB_HAS_CLONE:-1}" ;;
   *"git clone"*) : ;;
+  *"command -v g++"*) exit "${STUB_HAS_GXX:-0}" ;;
   *"worktree prune"*) : ;;
   *"worktree list --porcelain"*)
     i=0; while [ "$i" -lt "${STUB_WORKTREES:-1}" ]; do
@@ -241,21 +246,23 @@ case "$*" in
 esac
 ```
 
-`tests/stubs/ssh`:
+`tests/stubs/ssh` (mirrors real `ssh -G` resolution through the sbx wildcard block: `_default_user_`, port 22, `/dev/null` identity, `%n` proxycommand — see findings):
 ```sh
 #!/bin/sh
 # only supports: ssh -G <alias>
 [ "$1" = "-G" ] || exit 1
-printf 'user agent\nhostname 127.0.0.1\nport 52022\nidentityfile ~/.ssh/sbx_ed25519\n'
-[ -n "${STUB_SSH_PROXY:-}" ] && printf 'proxycommand %s\n' "$STUB_SSH_PROXY"
+printf 'user _default_user_\nhostname %s\nport 22\nidentityfile /dev/null\n' "$2"
+printf 'proxycommand %s\n' "${STUB_SSH_PROXY:-"\"/opt/homebrew/bin/sbx\" ssh proxy %n"}"
 exit 0
 ```
 
-`tests/stubs/git`:
+`tests/stubs/git` (host-side git only; in-VM git goes through the sbx stub):
 ```sh
 #!/bin/sh
 case "$*" in
   *"remote get-url origin") printf 'https://example.com/repo.git\n' ;;
+  *"config --global user.name") printf 'Test User\n' ;;
+  *"config --global user.email") printf 'test@example.com\n' ;;
   *) exit 0 ;;
 esac
 ```
@@ -336,11 +343,18 @@ emit_connection_json() {
   { [ -n "$_host" ] && [ -n "$_port" ]; } \
     || fail "could not resolve SSH config for $_name.sbx — did 'sbx setup ssh' run?"
   case "$_port" in *[!0-9]*) fail "resolved SSH port '$_port' is not numeric" ;; esac
-  case "$_idfile" in "~/"*) _idfile="$HOME/${_idfile#\~/}" ;; esac
+  # Orca expands only %h/%p in proxy commands, never %n (spike finding):
+  # pre-expand every token so the emitted command contains no % at all.
+  _proxy="$(printf '%s' "$_proxy" | sed "s/%[nh]/$_name.sbx/g")"
   _rhome="$(sbx exec "$_name" -- sh -c 'printf %s "$HOME"')"
   [ -n "$_rhome" ] || fail "could not resolve \$HOME inside sandbox $_name"
   _extra=""
-  [ -n "$_idfile" ] && _extra="$_extra,\"identityFile\":\"$(printf '%s' "$_idfile" | json_escape)\",\"identitiesOnly\":true"
+  # sbx auth rides the proxy tunnel: identityfile resolves to /dev/null — omit
+  # it entirely (Orca must not try to load /dev/null as a private key).
+  if [ -n "$_idfile" ] && [ "$_idfile" != "/dev/null" ]; then
+    case "$_idfile" in "~/"*) _idfile="$HOME/${_idfile#\~/}" ;; esac
+    _extra="$_extra,\"identityFile\":\"$(printf '%s' "$_idfile" | json_escape)\",\"identitiesOnly\":true"
+  fi
   { [ -n "$_proxy" ] && [ "$_proxy" != "none" ]; } \
     && _extra="$_extra,\"proxyCommand\":\"$(printf '%s' "$_proxy" | json_escape)\""
   printf '{"schemaVersion":1,"connection":{"type":"ssh","projectRoot":"%s/project","target":{"label":"Docker Sandbox","configHost":"%s.sbx","host":"%s","port":%s,"username":"%s"%s}},"userData":{"sandboxName":"%s"}}\n' \
@@ -400,12 +414,14 @@ export ORCA_PROJECT_ID="proj-123" ORCA_REPO_PATH="/tmp/whatever"
 NAME="orca-p-$(printf '%s' "proj-123" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-12)"
 
 # fresh project: creates sandbox, sets up ssh, clones, emits JSON
-export STUB_LS_JSON='[]' STUB_HAS_CLONE=1
+export STUB_LS_JSON='{"sandboxes":[]}' STUB_HAS_CLONE=1
 out="$(run_lifecycle create 2>"$TESTTMP/err")"
 log="$(cat "$SBX_LOG")"
 assert_contains "$log" "create --name $NAME" "sbx create called"
 assert_contains "$log" "setup ssh" "ssh setup called"
 assert_contains "$log" "git clone https://example.com/repo.git /home/agent/project" "clone called"
+assert_contains "$log" "command -v g++" "toolchain ensure called"
+assert_contains "$log" "git config --global user.name Test User" "git identity mirrored"
 printf '%s' "$out" | jq -e ".userData.sandboxName == \"$NAME\"" >/dev/null || { echo "FAIL create JSON: $out"; FAILURES=$((FAILURES+1)); }
 [ -d "$HOME/.orca-sbx/$NAME/workspace" ] || { echo "FAIL workspace dir missing"; FAILURES=$((FAILURES+1)); }
 
@@ -414,7 +430,7 @@ assert_eq "$(printf '%s' "$out" | wc -l | tr -d ' ')" "0" "single-line stdout"
 
 # reuse: sandbox exists + clone exists → no create, no clone, still emits JSON
 : > "$SBX_LOG"
-export STUB_LS_JSON="[{\"name\":\"$NAME\",\"status\":\"running\"}]" STUB_HAS_CLONE=0
+export STUB_LS_JSON="{\"sandboxes\":[{\"name\":\"$NAME\",\"status\":\"running\"}]}" STUB_HAS_CLONE=0
 out2="$(run_lifecycle create 2>/dev/null)"
 log2="$(cat "$SBX_LOG")"
 case "$log2" in *"create --name"*) echo "FAIL reused path called create"; FAILURES=$((FAILURES+1));; esac
@@ -457,6 +473,18 @@ if ! sbx exec "$NAME" -- test -d "$RHOME/project/.git"; then
     || fail "clone failed inside sandbox — check 'sbx secret set github' or SSH agent forwarding"
 fi
 
+# Orca's SSH relay builds node-pty from source on first connect; the claude
+# template ships no C++ toolchain (spike: `make: g++` exit 127). agent has sudo.
+sbx exec "$NAME" -- sh -c 'command -v g++ >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq build-essential; }' 1>&2 \
+  || fail "could not install build tools in sandbox (does the sbx network policy allow Ubuntu repos?)"
+
+# Orca's project flows require a git author identity on the SSH host (spike:
+# create-project preflight rejects without it). Mirror the desktop's identity.
+GIT_NAME="$(git config --global user.name 2>/dev/null || true)"
+GIT_EMAIL="$(git config --global user.email 2>/dev/null || true)"
+if [ -n "$GIT_NAME" ]; then sbx exec "$NAME" -- git config --global user.name "$GIT_NAME" 1>&2; fi
+if [ -n "$GIT_EMAIL" ]; then sbx exec "$NAME" -- git config --global user.email "$GIT_EMAIL" 1>&2; fi
+
 emit_connection_json "$NAME"
 ```
 
@@ -497,14 +525,14 @@ assert_eq "$rc" "0" "suspend exit code"
 assert_eq "$out" "" "suspend stdout empty"
 
 # resume: starts named sandbox from payload and re-emits JSON
-export STUB_LS_JSON='[{"name":"orca-p-abc123def456","status":"stopped"}]'
+export STUB_LS_JSON='{"sandboxes":[{"name":"orca-p-abc123def456","status":"stopped"}]}'
 out="$(printf '%s' "$PAYLOAD" | run_lifecycle resume 2>/dev/null)"
-assert_contains "$(cat "$SBX_LOG")" "start orca-p-abc123def456" "sbx start called"
+assert_contains "$(cat "$SBX_LOG")" "exec orca-p-abc123def456 -- true" "exec auto-start called"
 printf '%s' "$out" | jq -e '.userData.sandboxName == "orca-p-abc123def456"' >/dev/null \
   || { echo "FAIL resume JSON: $out"; FAILURES=$((FAILURES+1)); }
 
 # resume: sandbox gone → non-zero with actionable stderr
-: > "$SBX_LOG"; export STUB_LS_JSON='[]'
+: > "$SBX_LOG"; export STUB_LS_JSON='{"sandboxes":[]}'
 if printf '%s' "$PAYLOAD" | run_lifecycle resume >/dev/null 2>"$TESTTMP/err"; then
   echo "FAIL resume should fail when sandbox is gone"; FAILURES=$((FAILURES+1))
 fi
@@ -539,7 +567,7 @@ require_sbx
 NAME="$(sandbox_name "$PAYLOAD_NAME")"
 sandbox_exists "$NAME" \
   || fail "sandbox $NAME no longer exists (removed manually?); delete this workspace and create a new one"
-sbx start "$NAME" 1>&2 || true
+# v0.38 has no `sbx start`; `sbx exec` auto-starts a stopped sandbox (~2s, spike).
 sbx exec "$NAME" -- true 1>&2 || fail "sandbox $NAME failed to start"
 emit_connection_json "$NAME"
 ```
@@ -577,7 +605,7 @@ PAYLOAD='{"schemaVersion":1,"mode":"destroy","recipeResult":{"userData":{"sandbo
 mkdir -p "$HOME/.orca-sbx/orca-p-abc123def456"
 
 # other worktrees remain (main + 2 linked) → VM kept
-export STUB_LS_JSON='[{"name":"orca-p-abc123def456"}]' STUB_WORKTREES=3
+export STUB_LS_JSON='{"sandboxes":[{"name":"orca-p-abc123def456"}]}' STUB_WORKTREES=3
 printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy rc"; FAILURES=$((FAILURES+1)); }
 case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM with worktrees left"; FAILURES=$((FAILURES+1));; esac
 [ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed early"; FAILURES=$((FAILURES+1)); }
@@ -589,7 +617,7 @@ assert_contains "$(cat "$SBX_LOG")" "rm -f orca-p-abc123def456" "sbx rm called"
 [ ! -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir kept"; FAILURES=$((FAILURES+1)); }
 
 # sandbox already gone → still exit 0
-export STUB_LS_JSON='[]'
+export STUB_LS_JSON='{"sandboxes":[]}'
 printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy-gone rc"; FAILURES=$((FAILURES+1)); }
 
 finish
@@ -797,7 +825,7 @@ In `tests/stubs/sbx`, add two cases above the default:
 . "$(dirname "$0")/harness.sh"
 
 # all prereqs green
-export STUB_LS_JSON='[]' STUB_SECRETS='github
+export STUB_LS_JSON='{"sandboxes":[]}' STUB_SECRETS='github
 anthropic'
 out="$(sh scripts/bootstrap.sh 2>&1)"; rc=$?
 assert_eq "$rc" "0" "bootstrap rc all-green"
@@ -930,6 +958,7 @@ git commit -m "docs: user-facing README (install, security model, troubleshootin
 - Modify: lifecycle scripts + regen, if live runs surface fixes
 
 - [ ] **Step 1: Install the plugin from the local path** — Orca → Settings → Plugins → install from local path `/Users/matt/github/mattjohnson/orca-sbx-recipes`; approve the consent dialog; confirm the recipe appears in the composer's Per-Workspace Environment submenu (experimental flag on).
+- [ ] **Step 1b: Mux risk check** — the recipe-created hidden SSH target connects without the manual "Reuse SSH connection" toggle (it cannot be set on runtime-owned targets). If connect fails exit-255 on relay upload: STOP, record in findings, and Task 12 leads with the upstream `systemSshConnectionReuse` schema PR draft.
 - [ ] **Step 2: First workspace** — create a workspace with the recipe on a real project. Verify: VM created (`sbx ls`), clone present, relay ready, worktree created inside, claude launches with status working. Record timings (create-to-ready).
 - [ ] **Step 3: Second workspace reuse** — create another workspace on the same project. Verify: no second VM, no re-clone, fast create.
 - [ ] **Step 4: Sleep/wake** — sleep one workspace (sibling awake): VM keeps running. Wake it: reconnects. Stop the VM manually (`sbx stop`), wake a workspace: `resume` starts it and reconnects.
