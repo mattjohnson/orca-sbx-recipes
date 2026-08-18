@@ -6,7 +6,6 @@ case "$*" in
   "secret ls") printf '%s\n' "${STUB_SECRETS:-}" ;;
   version) printf '%s\n' "${STUB_VERSION:-sbx version 0.38.0}" ;;
   "ls --json") printf '%s\n' "$STUB_LS_JSON" ;;
-  "setup ssh") : ;;
   create*) : ;;
   "rm -f "*) : ;;
   *'printf %s "$HOME"'*) printf '/home/agent' ;;
@@ -28,5 +27,8 @@ case "$*" in
   *"pgrep -x sshd"*) exit 0 ;;
   *whoami*) printf 'agent' ;;
   *authorized_keys*) : ;;
+  *"rm -f /etc/ssh"*) : ;;
+  *"base64 -d"*) : ;;
+  *"sudo cat /etc/ssh"*) printf 'FAKE-HOST-KEY-%s\n' "${STUB_HOSTKEY_TAG:-1}" ;;
   *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
 esac

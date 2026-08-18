@@ -22,13 +22,15 @@ printf '%s' "$out" | jq -e ".userData.sandboxName == \"$NAME\"" >/dev/null || { 
 printf '%s' "$out" | jq -e '.connection.target.host == "127.0.0.1"' >/dev/null || { echo "FAIL create JSON host: $out"; FAILURES=$((FAILURES+1)); }
 [ -d "$HOME/.orca-sbx/$NAME/workspace" ] || { echo "FAIL workspace dir missing"; FAILURES=$((FAILURES+1)); }
 [ -f "$HOME/.orca-sbx/$NAME/id_ed25519" ] || { echo "FAIL identity file missing"; FAILURES=$((FAILURES+1)); }
+[ -f "$HOME/.orca-sbx/$NAME/hostkeys/ssh_host_ed25519_key" ] || { echo "FAIL host key not persisted"; FAILURES=$((FAILURES+1)); }
+assert_contains "$(cat "$HOME/.orca-sbx/$NAME/hostkeys/ssh_host_ed25519_key" 2>/dev/null)" "FAKE-HOST-KEY" "host key content saved"
 
 # stdout purity: the only stdout line is the JSON object
 assert_eq "$(printf '%s' "$out" | wc -l | tr -d ' ')" "0" "single-line stdout"
 
 # reuse: sandbox exists + clone exists + port already published → no create, no clone, no re-publish, still emits JSON
 : > "$SBX_LOG"
-# shellcheck disable=SC2090 # JSON variable expansion intended at runtime
+# shellcheck disable=SC2089,SC2090 # JSON variable expansion intended at runtime
 export STUB_LS_JSON="{\"sandboxes\":[{\"name\":\"$NAME\",\"status\":\"running\"}]}" STUB_HAS_CLONE=0 STUB_PORT_PUBLISHED="$PORT"
 out2="$(run_lifecycle create 2>/dev/null)"
 log2="$(cat "$SBX_LOG")"
@@ -36,5 +38,16 @@ case "$log2" in *"create --name"*) echo "FAIL reused path called create"; FAILUR
 case "$log2" in *"git clone"*) echo "FAIL reused path called clone"; FAILURES=$((FAILURES+1));; esac
 case "$log2" in *"--publish"*) echo "FAIL reused path re-published port"; FAILURES=$((FAILURES+1));; esac
 printf '%s' "$out2" | jq -e '.connection.type == "ssh"' >/dev/null || { echo "FAIL reuse JSON: $out2"; FAILURES=$((FAILURES+1)); }
+
+# recreate with persisted hostkeys: sandbox gone but $WORKROOT/hostkeys survives on the
+# host → restore path runs (base64 -d), no re-save (no 'sudo cat /etc/ssh')
+: > "$SBX_LOG"
+# shellcheck disable=SC2090 # JSON variable expansion intended at runtime
+export STUB_LS_JSON='{"sandboxes":[]}' STUB_HAS_CLONE=1
+out3="$(run_lifecycle create 2>/dev/null)"
+log3="$(cat "$SBX_LOG")"
+assert_contains "$log3" "base64 -d" "host key restored on recreate"
+case "$log3" in *"sudo cat /etc/ssh"*) echo "FAIL recreate path re-saved host key"; FAILURES=$((FAILURES+1));; esac
+printf '%s' "$out3" | jq -e '.connection.type == "ssh"' >/dev/null || { echo "FAIL recreate JSON: $out3"; FAILURES=$((FAILURES+1)); }
 
 finish
