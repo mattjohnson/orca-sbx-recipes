@@ -15,10 +15,9 @@ fi
 
 # Relay needs a C++ toolchain (node-pty source build); direct SSH needs sshd.
 # No systemd in the VM: sshd is started by ensure_sshd, not a service.
-# The template's first boot runs its own apt-get; wait for the dpkg/apt locks
-# (up to 5 min) before installing, or the two collide (spike-observed race).
-# shellcheck disable=SC2016 # the lock-wait loop must run inside the sandbox, not locally
-sbx exec "$NAME" -- sh -c 'command -v g++ >/dev/null 2>&1 && test -x /usr/sbin/sshd || { i=0; while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do i=$((i+1)); [ "$i" -ge 60 ] && break; sleep 5; done; sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential openssh-server; }' 1>&2 \
+# The sandbox launches its own background apt-get update on every boot; apt's
+# built-in lock wait (apt >= 1.9.11; VM ships 3.2) rides out the collision.
+sbx exec "$NAME" -- sh -c 'command -v g++ >/dev/null 2>&1 && test -x /usr/sbin/sshd || { sudo apt-get -o DPkg::Lock::Timeout=300 update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y -qq build-essential openssh-server; }' 1>&2 \
   || fail "could not install build tools/sshd in sandbox (does the sbx network policy allow Ubuntu repos?)"
 
 # Stable host key per project: a recreated VM reuses it, so known_hosts
