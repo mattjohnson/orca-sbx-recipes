@@ -53,12 +53,14 @@ emit_connection_json() {
   # Orca expands only %h/%p in proxy commands, never %n (spike finding):
   # pre-expand every token so the emitted command contains no % at all.
   _proxy="$(printf '%s' "$_proxy" | sed "s/%[nh]/$_name.sbx/g")"
+  # shellcheck disable=SC2016 # $HOME must expand inside the sandbox, not locally
   _rhome="$(sbx exec "$_name" -- sh -c 'printf %s "$HOME"')"
   [ -n "$_rhome" ] || fail "could not resolve \$HOME inside sandbox $_name"
   _extra=""
   # sbx auth rides the proxy tunnel: identityfile resolves to /dev/null — omit
   # it entirely (Orca must not try to load /dev/null as a private key).
   if [ -n "$_idfile" ] && [ "$_idfile" != "/dev/null" ]; then
+    # shellcheck disable=SC2088 # matching a literal leading ~/ from ssh -G output
     case "$_idfile" in "~/"*) _idfile="$HOME/${_idfile#\~/}" ;; esac
     _extra="$_extra,\"identityFile\":\"$(printf '%s' "$_idfile" | json_escape)\",\"identitiesOnly\":true"
   fi
