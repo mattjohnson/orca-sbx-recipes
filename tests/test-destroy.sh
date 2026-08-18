@@ -19,8 +19,18 @@ assert_contains "$(cat "$SBX_LOG")" "rm -f orca-p-abc123def456" "sbx rm called"
 [ ! -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir kept"; FAILURES=$((FAILURES+1)); }
 
 # sandbox already gone → still exit 0
-# shellcheck disable=SC2090 # JSON variable expansion intended at runtime
+# shellcheck disable=SC2089,SC2090 # JSON variable expansion intended at runtime
 export STUB_LS_JSON='{"sandboxes":[]}'
 printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy-gone rc"; FAILURES=$((FAILURES+1)); }
+
+# query failure → fail-safe: keep VM, exit 0
+mkdir -p "$HOME/.orca-sbx/orca-p-abc123def456"
+: > "$SBX_LOG"
+# shellcheck disable=SC2089,SC2090 # JSON variable expansion intended at runtime
+export STUB_LS_JSON='{"sandboxes":[{"name":"orca-p-abc123def456"}]}' STUB_WT_LIST_FAIL=1
+printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy-queryfail rc"; FAILURES=$((FAILURES+1)); }
+case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM on failed query"; FAILURES=$((FAILURES+1));; esac
+[ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed on failed query"; FAILURES=$((FAILURES+1)); }
+unset STUB_WT_LIST_FAIL
 
 finish
