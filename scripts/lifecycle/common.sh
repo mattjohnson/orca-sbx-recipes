@@ -60,6 +60,26 @@ ensure_port_published() {
   printf '%s\n' "$_p"
 }
 
+# The sbx daemon auto-stops sandboxes with no daemon-visible activity; a
+# direct-TCP session through a published port is invisible to it. Hold one
+# long-lived exec session per project as a keepalive.
+ensure_keepalive() {
+  _pidfile="$HOME/.orca-sbx/$1/keepalive.pid"
+  if [ -f "$_pidfile" ] && kill -0 "$(cat "$_pidfile")" 2>/dev/null; then
+    return 0
+  fi
+  nohup sbx exec "$1" -- sleep 2147483647 >/dev/null 2>&1 &
+  printf '%s' "$!" > "$_pidfile"
+}
+
+stop_keepalive() {
+  _pidfile="$HOME/.orca-sbx/$1/keepalive.pid"
+  if [ -f "$_pidfile" ]; then
+    kill "$(cat "$_pidfile")" 2>/dev/null || true
+    rm -f "$_pidfile"
+  fi
+}
+
 emit_connection_json() {
   _name="$1"
   _port="$(ensure_port_published "$_name")"

@@ -12,16 +12,25 @@ printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destr
 case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM with worktrees left"; FAILURES=$((FAILURES+1));; esac
 [ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed early"; FAILURES=$((FAILURES+1)); }
 
-# last workspace (main worktree only) → VM + host dir removed
+# last workspace (main worktree only) → VM + host dir removed; keepalive stopped
 : > "$SBX_LOG"; export STUB_WORKTREES=1
+sleep 30 &
+KEEPALIVE_PID=$!
+printf '%s' "$KEEPALIVE_PID" > "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid"
 printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy rc 2"; FAILURES=$((FAILURES+1)); }
 assert_contains "$(cat "$SBX_LOG")" "rm -f orca-p-abc123def456" "sbx rm called"
 [ ! -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir kept"; FAILURES=$((FAILURES+1)); }
+[ ! -f "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid" ] || { echo "FAIL keepalive pidfile kept"; FAILURES=$((FAILURES+1)); }
+if kill -0 "$KEEPALIVE_PID" 2>/dev/null; then echo "FAIL keepalive process not stopped"; FAILURES=$((FAILURES+1)); fi
 
-# sandbox already gone → still exit 0
+# sandbox already gone → still exit 0, and a stale/bogus keepalive pidfile is
+# removed without erroring (kill on a dead pid is guarded)
+mkdir -p "$HOME/.orca-sbx/orca-p-abc123def456"
+printf '99999999' > "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid"
 # shellcheck disable=SC2089,SC2090 # JSON variable expansion intended at runtime
 export STUB_LS_JSON='{"sandboxes":[]}'
 printf '%s' "$PAYLOAD" | run_lifecycle destroy 2>/dev/null || { echo "FAIL destroy-gone rc"; FAILURES=$((FAILURES+1)); }
+[ ! -f "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid" ] || { echo "FAIL bogus keepalive pidfile not removed"; FAILURES=$((FAILURES+1)); }
 
 # query failure → fail-safe: keep VM, exit 0
 mkdir -p "$HOME/.orca-sbx/orca-p-abc123def456"

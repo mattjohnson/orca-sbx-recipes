@@ -65,4 +65,11 @@ GIT_EMAIL="$(git config --global user.email 2>/dev/null || true)"
 if [ -n "$GIT_NAME" ]; then sbx exec "$NAME" -- git config --global user.name "$GIT_NAME" 1>&2; fi
 if [ -n "$GIT_EMAIL" ]; then sbx exec "$NAME" -- git config --global user.email "$GIT_EMAIL" 1>&2; fi
 
+# Interactive non-login shells over direct sshd miss ~/.local/bin (claude
+# and friends live there); make .bashrc export it, idempotently.
+# shellcheck disable=SC2016 # the PATH must expand inside the sandbox, not locally
+sbx exec "$NAME" -- sh -c 'grep -qF ".local/bin" ~/.bashrc 2>/dev/null || printf '"'"'\nexport PATH="$HOME/.local/bin:$PATH"\n'"'"' >> ~/.bashrc' 1>&2 \
+  || fail "could not update PATH in sandbox shell profile"
+ensure_keepalive "$NAME"
+
 emit_connection_json "$NAME"
