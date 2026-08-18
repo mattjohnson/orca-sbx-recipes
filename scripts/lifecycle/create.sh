@@ -1,6 +1,7 @@
 # create: reuse-or-create the project sandbox, ensure the clone, emit connection JSON.
 require_env
 require_sbx
+# shellcheck disable=SC2119 # sandbox_name is intentionally called without argv
 NAME="$(sandbox_name)"
 WORKROOT="$HOME/.orca-sbx/$NAME"
 mkdir -p "$WORKROOT/workspace"
