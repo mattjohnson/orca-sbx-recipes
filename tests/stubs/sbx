@@ -3,6 +3,8 @@ printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
 [ -n "${STUB_LS_JSON:-}" ] || STUB_LS_JSON='{"sandboxes":[]}'
 # shellcheck disable=SC2016 # matching literal remote commands in stub arguments
 case "$*" in
+  "secret ls") printf '%s\n' "${STUB_SECRETS:-}" ;;
+  version) printf '%s\n' "${STUB_VERSION:-sbx version 0.38.0}" ;;
   "ls --json") printf '%s\n' "$STUB_LS_JSON" ;;
   "setup ssh") : ;;
   create*) : ;;
