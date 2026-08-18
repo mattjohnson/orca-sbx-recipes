@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "id": "orca-sbx-recipes",
+  "publisher": "mattjohnson",
+  "name": "Docker Sandbox Recipes",
+  "version": "0.1.0",
+  "description": "Project-shared Docker Sandboxes (sbx) microVM recipes for Orca per-workspace environments.",
+  "repository": "https://github.com/mattjohnson/orca-sbx-recipes",
+  "engines": { "orca": ">=1.4.0" },
+  "pluginApi": 1,
+  "contributes": {
+    "vmRecipes": [{ "path": "recipes/sbx-project-sandbox.json" }]
+  },
+  "capabilities": []
+}

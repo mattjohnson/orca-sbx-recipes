@@ -10,3 +10,10 @@ jobs:
           shellcheck -s sh scripts/lifecycle/*.sh tests/harness.sh tests/stubs/* tests/run.sh tests/test-*.sh
       - name: tests
         run: sh tests/run.sh
+      - name: shellcheck generated recipe commands
+        run: |
+          for f in create suspend resume destroy; do
+            jq -r ".$f" recipes/sbx-project-sandbox.json | shellcheck -s sh -
+          done
+      - name: regen drift check
+        run: bash scripts/build-recipe.sh && git diff --exit-code recipes/

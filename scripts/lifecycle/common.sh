@@ -1,5 +1,6 @@
 # orca-sbx-recipes shared preamble — inlined ahead of every lifecycle script.
 # POSIX sh. stdout is reserved for the recipe result JSON; log to stderr.
+# shellcheck disable=SC2329 # preamble defines shared helpers, not all used in every script
 set -eu
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin"
 
@@ -26,6 +27,7 @@ payload_sandbox_name() {
   sed -n 's/.*"sandboxName"[[:space:]]*:[[:space:]]*"\(orca-p-[0-9a-f]\{12\}\)".*/\1/p' | head -n1
 }
 
+# shellcheck disable=SC2120 # used in context where argv is optional
 sandbox_name() {
   if [ -n "${1:-}" ]; then printf '%s\n' "$1"; return; fi
   printf 'orca-p-%s\n' "$(printf '%s' "$ORCA_PROJECT_ID" | hash_cmd | cut -c1-12)"
