@@ -9,6 +9,7 @@
 ## How it works
 
 - **One microVM per project.** Each Orca project gets exactly one [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`) microVM, shared by every worktree and workspace opened against that project — not one VM per workspace. The `create` recipe reuses the VM when it exists and provisions it with `sbx create` when it doesn't.
+- **One lifecycle operation at a time per project.** Concurrent runs (say, two workspaces created at once) serialize on a per-project lock under `~/.orca-sbx/`; the later run says it's waiting, then reuses whatever the first one built. A lock abandoned by a crashed run is detected and cleared automatically.
 - **A real sshd, kept alive by the recipe.** The VM ships with neither `sshd` nor systemd, so `create` installs `openssh-server` and starts `sshd -p 2222` directly; every lifecycle command re-ensures it's running, since nothing restarts it across a VM stop/start.
 - **Per-project keys, stable across recreation.** Auth uses an ed25519 keypair generated on the host under `~/.orca-sbx/<name>/` and installed into the VM's `authorized_keys`. The VM's own `sshd` host key is persisted the same way, so recreating the VM doesn't retire a trusted `known_hosts` entry.
 - **Plain TCP on a stable loopback port.** The `sshd` port is published to a deterministic host port in `30000`–`39999`, derived from a project hash (e.g. `sbx ports <name> --publish 33792:2222`), so it survives VM restarts. Orca connects over plain TCP with the project key — no SSH proxy in the path, so Orca's connection multiplexing (ControlMaster) just works.
@@ -84,6 +85,8 @@ The first workspace you open this way boots the VM (a couple of minutes, cold) a
 **Relay never becomes ready** — Orca's SSH relay needs a working Node inside the VM; check with `sbx exec <name> -- node --version`. `create` also installs `build-essential` on first connect (needed to build node-pty); if that step failed, your `sbx` network policy may be blocking apt access.
 
 **Workspace creation fails with a relay upload error mentioning exit 255** — this was a caveat of the earlier sbx-proxy connection design (Orca's SSH connection-reuse/multiplexing was incompatible with the proxy); it's eliminated by the direct-TCP connection this recipe now uses. If you still see it, the sandbox's `sshd` or its published port most likely needs a refresh — put the workspace to sleep and wake it again (that re-runs `resume`, which re-ensures `sshd` and re-emits the connection). If it persists, open an issue on this repo.
+
+**"another lifecycle operation for this project is in progress … waiting"** — lifecycle runs for the same project serialize on `~/.orca-sbx/<name>.lock`; the wait gives up after `ORCA_SBX_LOCK_TIMEOUT` seconds (default 600) and names the holding pid. A lock abandoned by a crashed run clears itself on the next attempt (its recorded pid is dead). If it times out and no lifecycle operation is actually running — e.g. a run was killed before it could record its pid — remove `~/.orca-sbx/<name>.lock` and retry.
 
 **Terminals die with "SSH connection lost"** — the VM may have been stopped outside Orca (the `sbx` daemon auto-stops sandboxes it considers idle). Put the workspace to sleep and wake it again to restart `sshd` and the keepalive session.
 

@@ -3,6 +3,7 @@
 PAYLOAD_NAME="$(payload_sandbox_name)"
 require_env
 NAME="$(sandbox_name "$PAYLOAD_NAME")"
+acquire_project_lock "$NAME"
 if ! command -v sbx >/dev/null 2>&1; then
   printf 'orca-sbx: sbx CLI missing; nothing to destroy\n' >&2
   exit 0
