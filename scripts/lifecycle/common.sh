@@ -52,12 +52,25 @@ ensure_sshd() {
     || fail "could not start sshd inside sandbox $1"
 }
 
+# Reuses any existing 2222 mapping (a prior run may have landed on a fallback
+# port); otherwise publishes the deterministic port, walking forward through
+# the 30000-39999 range when a port is taken by a colliding project or an
+# unrelated process.
 ensure_port_published() {
-  _p="$(project_host_port "$1")"
-  sbx ports "$1" 2>/dev/null | awk -v p="$_p" '$1=="127.0.0.1" && $2==p && $3==2222 { found=1 } END { exit !found }' \
-    || sbx ports "$1" --publish "$_p:2222" 1>&2 \
-    || fail "could not publish sandbox SSH port $_p"
-  printf '%s\n' "$_p"
+  _p="$(sbx ports "$1" 2>/dev/null | awk '$1=="127.0.0.1" && $3==2222 { print $2; exit }')"
+  if [ -n "$_p" ]; then printf '%s\n' "$_p"; return 0; fi
+  _base="$(project_host_port "$1")"
+  _try=0
+  while [ "$_try" -lt 10 ]; do
+    _p=$((30000 + (_base - 30000 + _try) % 10000))
+    if sbx ports "$1" --publish "$_p:2222" 1>&2; then
+      printf '%s\n' "$_p"
+      return 0
+    fi
+    printf 'orca-sbx: could not publish host port %s for %s\n' "$_p" "$1" >&2
+    _try=$((_try + 1))
+  done
+  fail "could not publish an SSH port for sandbox $1: tried 10 host ports starting at $_base — check what holds them ('sbx ports $1', 'lsof -iTCP -sTCP:LISTEN'), free one, then retry"
 }
 
 # The sbx daemon auto-stops sandboxes with no daemon-visible activity; a
