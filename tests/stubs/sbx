@@ -5,8 +5,37 @@ printf '%s\n' "$*" >> "${SBX_LOG:-/dev/null}"
 case "$*" in
   "secret ls") printf '%s\n' "${STUB_SECRETS:-}" ;;
   version) printf '%s\n' "${STUB_VERSION:-sbx version 0.38.0}" ;;
-  "ls --json") [ -z "${STUB_LS_FAIL:-}" ] && printf '%s\n' "$STUB_LS_JSON" || exit 1 ;;
-  create*) : ;;
+  "ls --json")
+    if [ -n "${STUB_LS_FAIL:-}" ]; then exit 1; fi
+    # STUB_STATE (a file path) makes ls/create stateful: ls reports the names
+    # create has recorded, so concurrency tests see real check-then-act windows.
+    if [ -n "${STUB_STATE:-}" ] && [ -s "$STUB_STATE" ]; then
+      printf '{"sandboxes":['
+      _sep=""
+      while IFS= read -r _n; do
+        printf '%s{"name":"%s","status":"running"}' "$_sep" "$_n"
+        _sep=","
+      done < "$STUB_STATE"
+      printf ']}\n'
+    else
+      printf '%s\n' "$STUB_LS_JSON"
+    fi ;;
+  create*)
+    if [ -n "${STUB_STATE:-}" ]; then
+      _name=""; _prev=""
+      for _a in "$@"; do
+        if [ "$_prev" = "--name" ]; then _name="$_a"; fi
+        _prev="$_a"
+      done
+      # STUB_CREATE_DELAY models real create latency, widening the race window.
+      if [ -n "${STUB_CREATE_DELAY:-}" ]; then sleep "$STUB_CREATE_DELAY"; fi
+      # Mirror the daemon's name uniqueness: a duplicate create fails raw.
+      if [ -f "$STUB_STATE" ] && grep -qFx "$_name" "$STUB_STATE"; then
+        printf 'Error response from daemon: name "%s" already in use\n' "$_name" >&2
+        exit 1
+      fi
+      printf '%s\n' "$_name" >> "$STUB_STATE"
+    fi ;;
   "rm -f "*) : ;;
   *'printf %s "$HOME"'*) printf '/home/agent' ;;
   *"test -d"*) exit "${STUB_HAS_CLONE:-1}" ;;
@@ -30,6 +59,13 @@ case "$*" in
   *"rm -f /etc/ssh"*) : ;;
   *"base64 -d"*) : ;;
   *"sudo cat /etc/ssh"*) printf 'FAKE-HOST-KEY-%s\n' "${STUB_HOSTKEY_TAG:-1}" ;;
-  *"sleep 2147483647"*) : ;;
+  *"sleep 2147483647"*)
+    # STUB_KEEPALIVE_HOLD (a file path) makes keepalive execs really block, so
+    # pidfile liveness checks mean something; each records its pid there for
+    # the test to count and kill. exec keeps the recorded pid == the sleeper.
+    if [ -n "${STUB_KEEPALIVE_HOLD:-}" ]; then
+      printf '%s\n' "$$" >> "$STUB_KEEPALIVE_HOLD"
+      exec sleep 2147483647
+    fi ;;
   *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
 esac
