@@ -20,6 +20,7 @@ assert_contains "$log" "--publish $PORT:2222" "port published"
 assert_contains "$log" "git config --global user.name Test User" "git identity mirrored"
 printf '%s' "$out" | jq -e ".userData.sandboxName == \"$NAME\"" >/dev/null || { echo "FAIL create JSON: $out"; FAILURES=$((FAILURES+1)); }
 printf '%s' "$out" | jq -e '.connection.target.host == "127.0.0.1"' >/dev/null || { echo "FAIL create JSON host: $out"; FAILURES=$((FAILURES+1)); }
+printf '%s' "$out" | jq -e ".connection.target.label == \"Docker Sandbox (${NAME#orca-p-})\"" >/dev/null || { echo "FAIL create JSON label: $out"; FAILURES=$((FAILURES+1)); }
 [ -d "$HOME/.orca-sbx/$NAME/workspace" ] || { echo "FAIL workspace dir missing"; FAILURES=$((FAILURES+1)); }
 [ -f "$HOME/.orca-sbx/$NAME/id_ed25519" ] || { echo "FAIL identity file missing"; FAILURES=$((FAILURES+1)); }
 [ -f "$HOME/.orca-sbx/$NAME/hostkeys/ssh_host_ed25519_key" ] || { echo "FAIL host key not persisted"; FAILURES=$((FAILURES+1)); }
