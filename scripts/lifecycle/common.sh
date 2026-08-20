@@ -91,6 +91,6 @@ emit_connection_json() {
   [ -n "$_user" ] || fail "could not resolve user inside sandbox $_name"
   _idfile="$HOME/.orca-sbx/$_name/id_ed25519"
   [ -f "$_idfile" ] || fail "missing SSH key $_idfile — delete and recreate the workspace"
-  printf '{"schemaVersion":1,"connection":{"type":"ssh","projectRoot":"%s/project","target":{"label":"Docker Sandbox","host":"127.0.0.1","port":%s,"username":"%s","identityFile":"%s","identitiesOnly":true}},"userData":{"sandboxName":"%s"}}\n' \
-    "$_rhome" "$_port" "$_user" "$(printf '%s' "$_idfile" | json_escape)" "$_name"
+  printf '{"schemaVersion":1,"connection":{"type":"ssh","projectRoot":"%s/project","target":{"label":"Docker Sandbox (%s)","host":"127.0.0.1","port":%s,"username":"%s","identityFile":"%s","identitiesOnly":true}},"userData":{"sandboxName":"%s"}}\n' \
+    "$_rhome" "${_name#orca-p-}" "$_port" "$_user" "$(printf '%s' "$_idfile" | json_escape)" "$_name"
 }
