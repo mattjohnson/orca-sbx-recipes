@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/mattjohnson/orca-sbx-recipes/actions/workflows/ci.yml/badge.svg)](https://github.com/mattjohnson/orca-sbx-recipes/actions/workflows/ci.yml)
 
-**Status (v0.1 beta):** validated end-to-end so far — first workspace create → connect → terminals → Claude Code running, live in Orca. **Not yet live-verified:** second-workspace reuse, sleep/wake, and refcounted destroy — those are exercised only by the unit tests under `tests/`, not against a real sandbox. Expect rough edges and report them.
+**Status (v0.1 beta):** every lifecycle path is now live-verified in Orca against a real sandbox — first-workspace create → connect → terminals → Claude Code running; second-workspace reuse (same VM, no re-clone, one more linked worktree); sleep/wake, including waking after the sandbox had been stopped; and refcounted destroy (the VM survives while a sibling workspace remains, and is removed with the last one). Expect rough edges and report them.
 
 **Docker Sandbox recipes for Orca — one sbx microVM per project; every worktree and agent runs inside it, your host stays safe.**
 
