@@ -21,7 +21,7 @@ assert_contains "$log" "exec orca-p-abc123def456 -- true" "exec auto-start calle
 assert_contains "$log" "pgrep -x sshd" "sshd ensure called"
 wait_for_log "sleep 2147483647" 30 "keepalive started" || true
 [ -f "$HOME/.orca-sbx/orca-p-abc123def456/keepalive.pid" ] || { echo "FAIL keepalive pidfile missing after resume"; FAILURES=$((FAILURES+1)); }
-printf '%s' "$out" | jq -e --argjson port "$expected_port" '.userData.sandboxName == "orca-p-abc123def456" and .connection.target.port == $port' >/dev/null \
+printf '%s' "$out" | jq -e --argjson port "$expected_port" '.userData.sandboxName == "orca-p-abc123def456" and .connection.target.port == $port and .connection.target.label == "Docker Sandbox (abc123def456)"' >/dev/null \
   || { echo "FAIL resume JSON: $out"; FAILURES=$((FAILURES+1)); }
 
 # resume: sandbox gone → non-zero with actionable stderr
