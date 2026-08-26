@@ -24,3 +24,14 @@ wait_for_log() {
   FAILURES=$((FAILURES + 1))
   return 1
 }
+# The "sbx CLI missing" guards need a PATH with no sbx on it. common.sh appends
+# /opt/homebrew/bin, /usr/local/bin and $HOME/.docker/bin to whatever we set, so
+# a real install in one of those still shadows NO_SBX_PATH; callers check first
+# and skip rather than report a failure they cannot fix.
+NO_SBX_PATH="/usr/bin:/bin"
+can_hide_sbx() {
+  ! (PATH="$NO_SBX_PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin"
+     export PATH
+     command -v sbx) >/dev/null 2>&1
+}
+skip() { printf 'SKIP %s\n' "$*"; }

@@ -55,4 +55,18 @@ case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM when ls --json itse
 [ -f "$HOME/.orca-sbx/orca-p-abc123def456/id_ed25519" ] || { echo "FAIL keypair deleted while VM still lives"; FAILURES=$((FAILURES+1)); }
 unset STUB_LS_FAIL
 
+# sbx CLI gone from the host entirely (uninstalled between create and delete) →
+# nothing to destroy, exit 0, and the host-side workroot is left for the user
+mkdir -p "$HOME/.orca-sbx/orca-p-abc123def456"
+: > "$SBX_LOG"
+if can_hide_sbx; then
+  (PATH="$NO_SBX_PATH"; export PATH; printf '%s' "$PAYLOAD" | run_lifecycle destroy) 2>"$TESTTMP/err"
+  rc=$?
+  assert_eq "$rc" "0" "destroy exit code with sbx missing"
+  assert_contains "$(cat "$TESTTMP/err")" "sbx CLI missing" "destroy sbx-missing message"
+  [ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed with sbx missing"; FAILURES=$((FAILURES+1)); }
+else
+  skip "destroy sbx-missing: a real sbx on this host shadows the test PATH"
+fi
+
 finish
