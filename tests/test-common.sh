@@ -9,6 +9,29 @@ expected="orca-p-$(printf '%s' "proj-123" | { command -v shasum >/dev/null 2>&1 
 got="$(sh -c "$(cat scripts/lifecycle/common.sh); sandbox_name")"
 assert_eq "$got" "$expected" "derived name"
 
+# hash_cmd's sha256sum fallback never runs on CI: both runners ship shasum.
+# Force it with a PATH that has no shasum on it, plus a recording sha256sum
+# shim (macOS ships no sha256sum of its own, so the shim delegates to shasum).
+fallback_bin="$TESTTMP/no-shasum"; mkdir -p "$fallback_bin"
+fallback_marker="$TESTTMP/sha256sum.called"
+ln -s "$(command -v cut)" "$fallback_bin/cut" # sandbox_name's only other external
+if command -v sha256sum >/dev/null 2>&1; then
+  fallback_impl="$(command -v sha256sum)"
+else
+  fallback_impl="$(command -v shasum) -a 256"
+fi
+cat > "$fallback_bin/sha256sum" <<EOF
+#!/bin/sh
+: > "$fallback_marker"
+exec $fallback_impl "\$@"
+EOF
+chmod +x "$fallback_bin/sha256sum"
+# /bin/sh by absolute path: the pruned PATH is also what finds the shell itself.
+got="$(env PATH="$fallback_bin" /bin/sh -c "$(cat scripts/lifecycle/common.sh); sandbox_name")"
+assert_eq "$got" "$expected" "sha256sum fallback derives the same name"
+[ -f "$fallback_marker" ] \
+  || { echo "FAIL sha256sum fallback: shasum still reachable (preamble appends /opt/homebrew/bin:/usr/local/bin)"; FAILURES=$((FAILURES+1)); }
+
 # payload name wins over derivation, and only well-formed names are accepted
 got="$(printf '{"userData":{"sandboxName":"orca-p-abc123def456"}}' \
   | sh -c "$(cat scripts/lifecycle/common.sh); sandbox_name \"\$(payload_sandbox_name)\"")"
