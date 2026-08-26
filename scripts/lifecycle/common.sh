@@ -37,6 +37,49 @@ sandbox_exists() {
   sbx ls --json 2>/dev/null | grep -Fq "\"$1\""
 }
 
+# Serialize lifecycle runs per project: every guard here is check-then-act
+# (sandbox_exists→create, keepalive pidfile, hostkey persistence), so two
+# concurrent runs race each other. mkdir is the portable atomic primitive
+# (macOS ships no flock). Held for the rest of the run; released on exit.
+acquire_project_lock() {
+  _lock="$HOME/.orca-sbx/$1.lock"
+  mkdir -p "$HOME/.orca-sbx"
+  _lock_waited=0
+  until mkdir "$_lock" 2>/dev/null; do
+    _holder="$(cat "$_lock/pid" 2>/dev/null || true)"
+    if [ -n "$_holder" ] && ! kill -0 "$_holder" 2>/dev/null; then
+      # Holder crashed without cleanup. Steal under a mutex: two waiters can
+      # both observe the dead holder, and an unserialized removal could take
+      # out a successor's fresh lock instead of this abandoned one. Re-verify
+      # under the mutex — a fresh lock carries a different pid (or none yet).
+      if mkdir "$_lock.steal" 2>/dev/null; then
+        if [ "$(cat "$_lock/pid" 2>/dev/null || true)" = "$_holder" ]; then
+          printf 'orca-sbx: clearing stale lock left by pid %s (process gone)\n' "$_holder" >&2
+          rm -rf "$_lock"
+        fi
+        rm -rf "$_lock.steal"
+        continue
+      fi
+      # another waiter is mid-steal; fall through and retry after a beat
+    fi
+    if [ "$_lock_waited" -eq 0 ]; then
+      printf 'orca-sbx: another lifecycle operation for this project is in progress (pid %s); waiting for it to finish\n' "${_holder:-unknown}" >&2
+    fi
+    if [ "$_lock_waited" -ge "${ORCA_SBX_LOCK_TIMEOUT:-600}" ]; then
+      fail "timed out after ${ORCA_SBX_LOCK_TIMEOUT:-600}s waiting for the concurrent operation (pid ${_holder:-unknown}) — if it is stuck, kill that process (or remove $_lock) and retry"
+    fi
+    sleep 1
+    _lock_waited=$((_lock_waited + 1))
+  done
+  # Trap before the pid write: if the write fails (set -e exits), the lock must
+  # still be released, or the project wedges until the timeout with no pid to
+  # steal by. Single-quoted so $_lock expands at exit time; nothing reassigns it.
+  trap 'rm -rf "$_lock"' EXIT
+  # dash skips EXIT traps on unhandled TERM; route signals through exit.
+  trap 'exit 1' INT TERM HUP
+  printf '%s' "$$" > "$_lock/pid"
+}
+
 json_escape() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 # Deterministic per-project host port (30000-39999): fixed specs survive VM

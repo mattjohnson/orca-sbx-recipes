@@ -3,6 +3,9 @@ require_env
 require_sbx
 # shellcheck disable=SC2119 # sandbox_name is intentionally called without argv
 NAME="$(sandbox_name)"
+# Two creates for the same project race the sandbox_exists check and the
+# keepalive pidfile (issue #4); serialized, the loser takes the reuse path.
+acquire_project_lock "$NAME"
 WORKROOT="$HOME/.orca-sbx/$NAME"
 mkdir -p "$WORKROOT/workspace"
 chmod 700 "$WORKROOT"
