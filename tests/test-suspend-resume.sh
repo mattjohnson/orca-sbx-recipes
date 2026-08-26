@@ -24,6 +24,17 @@ wait_for_log "sleep 2147483647" 30 "keepalive started" || true
 printf '%s' "$out" | jq -e --argjson port "$expected_port" '.userData.sandboxName == "orca-p-abc123def456" and .connection.target.port == $port and .connection.target.label == "Docker Sandbox (abc123def456)"' >/dev/null \
   || { echo "FAIL resume JSON: $out"; FAILURES=$((FAILURES+1)); }
 
+# resume: sandbox is there but will not start → hard fail, no partial result JSON
+: > "$SBX_LOG"
+export STUB_EXEC_TRUE_FAIL=1
+if printf '%s' "$PAYLOAD" | run_lifecycle resume >"$TESTTMP/out" 2>"$TESTTMP/err"; then
+  echo "FAIL resume should fail when the sandbox will not start"; FAILURES=$((FAILURES+1))
+fi
+assert_contains "$(cat "$TESTTMP/err")" "failed to start" "resume start-failure message"
+assert_eq "$(cat "$TESTTMP/out")" "" "resume emits no JSON when the sandbox will not start"
+case "$(cat "$SBX_LOG")" in *"pgrep -x sshd"*) echo "FAIL resume kept going past a failed start"; FAILURES=$((FAILURES+1));; esac
+unset STUB_EXEC_TRUE_FAIL
+
 # resume: sandbox gone → non-zero with actionable stderr
 : > "$SBX_LOG"
 # shellcheck disable=SC2090 # JSON variable expansion intended at runtime

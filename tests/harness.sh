@@ -24,3 +24,16 @@ wait_for_log() {
   FAILURES=$((FAILURES + 1))
   return 1
 }
+# A PATH with no sbx on it, for the "sbx CLI missing" guards. Pruning the
+# caller's PATH is not enough: the preamble appends /opt/homebrew/bin,
+# /usr/local/bin and $HOME/.docker/bin, which is where a real install lives —
+# so assign this *after* the preamble, the way test-common.sh's sha256sum
+# fallback does. It carries the few externals those paths still reach for.
+no_sbx_bin() {
+  _dir="$TESTTMP/no-sbx"
+  if [ ! -d "$_dir" ]; then
+    mkdir -p "$_dir"
+    for _c in sed head cat rm mkdir; do ln -s "$(command -v "$_c")" "$_dir/$_c"; done
+  fi
+  printf '%s\n' "$_dir"
+}

@@ -55,4 +55,18 @@ case "$(cat "$SBX_LOG")" in *"rm -f"*) echo "FAIL removed VM when ls --json itse
 [ -f "$HOME/.orca-sbx/orca-p-abc123def456/id_ed25519" ] || { echo "FAIL keypair deleted while VM still lives"; FAILURES=$((FAILURES+1)); }
 unset STUB_LS_FAIL
 
+# sbx CLI gone from the host entirely (uninstalled between create and delete) →
+# nothing to destroy, exit 0, and the host-side workroot left for the user.
+# PATH is reset at the seam between preamble and script, not around the whole
+# run: the preamble appends the dirs a real sbx install lives in, so pruning
+# PATH from outside would not hide it (see test-common.sh's sha256sum fallback).
+mkdir -p "$HOME/.orca-sbx/orca-p-abc123def456"
+printf '%s' "$PAYLOAD" | sh -c "$(cat scripts/lifecycle/common.sh)
+PATH=\"$(no_sbx_bin)\"
+$(cat scripts/lifecycle/destroy.sh)" lifecycle 2>"$TESTTMP/err"
+rc=$?
+assert_eq "$rc" "0" "destroy exit code with sbx missing"
+assert_contains "$(cat "$TESTTMP/err")" "sbx CLI missing" "destroy sbx-missing message"
+[ -d "$HOME/.orca-sbx/orca-p-abc123def456" ] || { echo "FAIL host dir removed with sbx missing"; FAILURES=$((FAILURES+1)); }
+
 finish
