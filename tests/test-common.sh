@@ -9,16 +9,17 @@ expected="orca-p-$(printf '%s' "proj-123" | { command -v shasum >/dev/null 2>&1 
 got="$(sh -c "$(cat scripts/lifecycle/common.sh); sandbox_name")"
 assert_eq "$got" "$expected" "derived name"
 
-# hash_cmd's sha256sum fallback never runs on CI: both runners ship shasum.
-# Force it with a PATH that has no shasum on it, plus a recording sha256sum
-# shim (macOS ships no sha256sum of its own, so the shim delegates to shasum).
+# hash_cmd's sha256sum fallback never runs on CI: every runner ships shasum,
+# and macos-latest has one in the /opt/homebrew/bin the preamble appends — so
+# pruning the caller's PATH is not enough. Reset PATH *after* the preamble to
+# a dir with no shasum on it: what a host without shasum looks like to hash_cmd.
 fallback_bin="$TESTTMP/no-shasum"; mkdir -p "$fallback_bin"
 fallback_marker="$TESTTMP/sha256sum.called"
 ln -s "$(command -v cut)" "$fallback_bin/cut" # sandbox_name's only other external
 if command -v sha256sum >/dev/null 2>&1; then
   fallback_impl="$(command -v sha256sum)"
 else
-  fallback_impl="$(command -v shasum) -a 256"
+  fallback_impl="$(command -v shasum) -a 256" # macOS ships no sha256sum of its own
 fi
 cat > "$fallback_bin/sha256sum" <<EOF
 #!/bin/sh
@@ -26,11 +27,12 @@ cat > "$fallback_bin/sha256sum" <<EOF
 exec $fallback_impl "\$@"
 EOF
 chmod +x "$fallback_bin/sha256sum"
-# /bin/sh by absolute path: the pruned PATH is also what finds the shell itself.
-got="$(env PATH="$fallback_bin" /bin/sh -c "$(cat scripts/lifecycle/common.sh); sandbox_name")"
+got="$(sh -c "$(cat scripts/lifecycle/common.sh); PATH=\"$fallback_bin\"; sandbox_name")"
 assert_eq "$got" "$expected" "sha256sum fallback derives the same name"
+# The shim records its own call, so a shasum that stayed reachable fails here
+# rather than silently re-testing the branch that already has coverage.
 [ -f "$fallback_marker" ] \
-  || { echo "FAIL sha256sum fallback: shasum still reachable (preamble appends /opt/homebrew/bin:/usr/local/bin)"; FAILURES=$((FAILURES+1)); }
+  || { echo "FAIL sha256sum fallback: hash_cmd did not take the sha256sum branch"; FAILURES=$((FAILURES+1)); }
 
 # payload name wins over derivation, and only well-formed names are accepted
 got="$(printf '{"userData":{"sandboxName":"orca-p-abc123def456"}}' \
