@@ -18,7 +18,12 @@ case "$*" in
     i=0; while [ "$i" -lt "${STUB_WORKTREES:-1}" ]; do
       printf 'worktree /home/agent/wt%s\nHEAD 0000\n\n' "$i"; i=$((i+1)); done ;;
   *" true") exit 0 ;;
-  ports*--publish*) : ;;
+  ports*--publish*)
+    _all="$*"; _req="${_all#* --publish }"; _req="${_req%%:*}"
+    for _fail in ${STUB_PUBLISH_FAIL_PORTS:-}; do
+      [ "$_req" = "$_fail" ] && exit 1
+    done
+    : ;;
   ports*)
     printf 'HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n'
     if [ -n "${STUB_PORT_PUBLISHED:-}" ]; then
