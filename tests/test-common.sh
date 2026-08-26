@@ -40,21 +40,45 @@ fi
 assert_contains "$(cat "$TESTTMP/err")" "sbx login" "require_sbx not-ready hint"
 unset STUB_LS_FAIL
 
-# require_sbx: no sbx on PATH at all → install hint
-if can_hide_sbx; then
-  (PATH="$NO_SBX_PATH"; export PATH; run_common 'require_sbx') 2>"$TESTTMP/err"
-  rc=$?
-  assert_eq "$rc" "1" "require_sbx exit code with no sbx on PATH"
-  assert_contains "$(cat "$TESTTMP/err")" "sbx CLI not found" "require_sbx missing-CLI hint"
-else
-  skip "require_sbx missing-CLI: a real sbx on this host shadows the test PATH"
+# require_sbx: no sbx on PATH at all → install hint. Reset PATH after the
+# preamble, same seam as the sha256sum fallback below: the preamble appends the
+# dirs a real sbx install lives in, so pruning PATH from outside does nothing.
+no_sbx="$(no_sbx_bin)"
+if run_common "PATH=\"$no_sbx\"; require_sbx" 2>"$TESTTMP/err"; then
+  echo "FAIL require_sbx should fail when no sbx is on PATH"; FAILURES=$((FAILURES+1))
 fi
+assert_contains "$(cat "$TESTTMP/err")" "sbx CLI not found" "require_sbx missing-CLI hint"
 
 # name derivation is deterministic and matches the documented scheme
 # shellcheck disable=SC2015 # intentional command-fallback idiom
 expected="orca-p-$(printf '%s' "proj-123" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-12)"
 got="$(run_common 'sandbox_name')"
 assert_eq "$got" "$expected" "derived name"
+
+# hash_cmd's sha256sum fallback never runs on CI: every runner ships shasum,
+# and macos-latest has one in the /opt/homebrew/bin the preamble appends — so
+# pruning the caller's PATH is not enough. Reset PATH *after* the preamble to
+# a dir with no shasum on it: what a host without shasum looks like to hash_cmd.
+fallback_bin="$TESTTMP/no-shasum"; mkdir -p "$fallback_bin"
+fallback_marker="$TESTTMP/sha256sum.called"
+ln -s "$(command -v cut)" "$fallback_bin/cut" # sandbox_name's only other external
+if command -v sha256sum >/dev/null 2>&1; then
+  fallback_impl="$(command -v sha256sum)"
+else
+  fallback_impl="$(command -v shasum) -a 256" # macOS ships no sha256sum of its own
+fi
+cat > "$fallback_bin/sha256sum" <<EOF
+#!/bin/sh
+: > "$fallback_marker"
+exec $fallback_impl "\$@"
+EOF
+chmod +x "$fallback_bin/sha256sum"
+got="$(run_common "PATH=\"$fallback_bin\"; sandbox_name")"
+assert_eq "$got" "$expected" "sha256sum fallback derives the same name"
+# The shim records its own call, so a shasum that stayed reachable fails here
+# rather than silently re-testing the branch that already has coverage.
+[ -f "$fallback_marker" ] \
+  || { echo "FAIL sha256sum fallback: hash_cmd did not take the sha256sum branch"; FAILURES=$((FAILURES+1)); }
 
 # payload name wins over derivation, and only well-formed names are accepted
 # shellcheck disable=SC2016 # the snippet is expanded by the inner sh, not here
@@ -114,5 +138,33 @@ printf '%s' "$out" | jq -e --argjson port "$expected_port" '
   and (.connection.target | has("configHost") | not)
   and .userData.sandboxName == "orca-p-abc123def456"' >/dev/null \
   || { echo "FAIL emit_connection_json shape: $out"; FAILURES=$((FAILURES+1)); }
+
+# port collision: deterministic port taken → falls back to the next one and emits it
+: > "$SBX_LOG"
+export STUB_PUBLISH_FAIL_PORTS="$expected_port"
+out="$(run_common 'emit_connection_json orca-p-abc123def456' 2>/dev/null)"
+assert_contains "$(cat "$SBX_LOG")" "--publish $((expected_port + 1)):2222" "fallback port published"
+printf '%s' "$out" | jq -e --argjson port "$((expected_port + 1))" '.connection.target.port == $port' >/dev/null \
+  || { echo "FAIL fallback port in JSON: $out"; FAILURES=$((FAILURES+1)); }
+
+# every candidate port taken → fails with the range tried and a remedy
+fail_ports=""; i=0
+while [ "$i" -lt 10 ]; do fail_ports="$fail_ports $((expected_port + i))"; i=$((i+1)); done
+export STUB_PUBLISH_FAIL_PORTS="$fail_ports"
+if err="$(run_common 'emit_connection_json orca-p-abc123def456' 2>&1 >/dev/null)"; then
+  echo "FAIL exhausted ports: expected failure, got success"; FAILURES=$((FAILURES+1))
+fi
+assert_contains "$err" "tried 10 host ports starting at $expected_port" "exhaustion message names range"
+assert_contains "$err" "sbx ports" "exhaustion message suggests remedy"
+unset STUB_PUBLISH_FAIL_PORTS
+
+# a mapping already published on a fallback port is reused, not re-published
+: > "$SBX_LOG"
+export STUB_PORT_PUBLISHED="$((expected_port + 3))"
+out="$(run_common 'emit_connection_json orca-p-abc123def456' 2>/dev/null)"
+case "$(cat "$SBX_LOG")" in *"--publish"*) echo "FAIL fallback-port reuse re-published"; FAILURES=$((FAILURES+1));; esac
+printf '%s' "$out" | jq -e --argjson port "$((expected_port + 3))" '.connection.target.port == $port' >/dev/null \
+  || { echo "FAIL reused fallback port in JSON: $out"; FAILURES=$((FAILURES+1)); }
+unset STUB_PORT_PUBLISHED
 
 finish

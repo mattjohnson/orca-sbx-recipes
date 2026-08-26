@@ -24,14 +24,16 @@ wait_for_log() {
   FAILURES=$((FAILURES + 1))
   return 1
 }
-# The "sbx CLI missing" guards need a PATH with no sbx on it. common.sh appends
-# /opt/homebrew/bin, /usr/local/bin and $HOME/.docker/bin to whatever we set, so
-# a real install in one of those still shadows NO_SBX_PATH; callers check first
-# and skip rather than report a failure they cannot fix.
-NO_SBX_PATH="/usr/bin:/bin"
-can_hide_sbx() {
-  ! (PATH="$NO_SBX_PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin"
-     export PATH
-     command -v sbx) >/dev/null 2>&1
+# A PATH with no sbx on it, for the "sbx CLI missing" guards. Pruning the
+# caller's PATH is not enough: the preamble appends /opt/homebrew/bin,
+# /usr/local/bin and $HOME/.docker/bin, which is where a real install lives —
+# so assign this *after* the preamble, the way test-common.sh's sha256sum
+# fallback does. It carries the few externals those paths still reach for.
+no_sbx_bin() {
+  _dir="$TESTTMP/no-sbx"
+  if [ ! -d "$_dir" ]; then
+    mkdir -p "$_dir"
+    for _c in sed head cat rm mkdir; do ln -s "$(command -v "$_c")" "$_dir/$_c"; done
+  fi
+  printf '%s\n' "$_dir"
 }
-skip() { printf 'SKIP %s\n' "$*"; }
