@@ -119,22 +119,33 @@ ensure_port_published() {
 # The sbx daemon auto-stops sandboxes with no daemon-visible activity; a
 # direct-TCP session through a published port is invisible to it. Hold one
 # long-lived exec session per project as a keepalive.
+KEEPALIVE_SLEEP_SECONDS=2147483647
+
+# A pidfile records only a number, and after a crash or a reboot the OS may have
+# recycled that number onto an unrelated process. Print the recorded PID only
+# while it still looks like this sandbox's keepalive: a bare `kill -0` would both
+# skip a needed respawn and aim stop_keepalive at somebody else's process. An
+# unreadable pidfile, a missing `ps`, or an argv we don't recognise all mean "not
+# ours" — respawn rather than trust it, and never signal what we can't identify.
+keepalive_pid() {
+  _kp="$(cat "$HOME/.orca-sbx/$1/keepalive.pid" 2>/dev/null)" || return 1
+  case "$_kp" in '' | *[!0-9]*) return 1 ;; esac
+  case "$(ps -p "$_kp" -o args= 2>/dev/null)" in
+    *"$1"*"sleep $KEEPALIVE_SLEEP_SECONDS"*) printf '%s\n' "$_kp" ;;
+    *) return 1 ;;
+  esac
+}
+
 ensure_keepalive() {
   mkdir -p "$HOME/.orca-sbx/$1"
-  _pidfile="$HOME/.orca-sbx/$1/keepalive.pid"
-  if [ -f "$_pidfile" ] && kill -0 "$(cat "$_pidfile")" 2>/dev/null; then
-    return 0
-  fi
-  nohup sbx exec "$1" -- sleep 2147483647 >/dev/null 2>&1 &
-  printf '%s' "$!" > "$_pidfile"
+  keepalive_pid "$1" >/dev/null && return 0
+  nohup sbx exec "$1" -- sleep "$KEEPALIVE_SLEEP_SECONDS" >/dev/null 2>&1 &
+  printf '%s' "$!" > "$HOME/.orca-sbx/$1/keepalive.pid"
 }
 
 stop_keepalive() {
-  _pidfile="$HOME/.orca-sbx/$1/keepalive.pid"
-  if [ -f "$_pidfile" ]; then
-    kill "$(cat "$_pidfile")" 2>/dev/null || true
-    rm -f "$_pidfile"
-  fi
+  _kp_stop="$(keepalive_pid "$1")" && kill "$_kp_stop" 2>/dev/null
+  rm -f "$HOME/.orca-sbx/$1/keepalive.pid"
 }
 
 emit_connection_json() {
