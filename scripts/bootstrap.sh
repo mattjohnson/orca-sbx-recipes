@@ -27,7 +27,9 @@ fi
 # Version floor: the release this pack was validated against (see
 # docs/spike/2026-08-17-findings.md; reconcile if the spike recorded newer).
 MIN_MAJOR=0 MIN_MINOR=38
-VER="$(sbx version 2>/dev/null | sed -n 's/.*\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.[0-9][0-9]*.*/\1.\2/p' | head -n1)"
+# `[^0-9]*` (not `.*`) skips the prefix: a greedy `.*` would swallow all but the
+# last digit of the major, reading 10.2.3 as 0.2.
+VER="$(sbx version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.[0-9][0-9]*.*/\1.\2/p' | head -n1)"
 MAJOR="${VER%%.*}"; MINOR="${VER#*.}"
 if [ -n "$VER" ] && { [ "$MAJOR" -gt "$MIN_MAJOR" ] || { [ "$MAJOR" -eq "$MIN_MAJOR" ] && [ "$MINOR" -ge "$MIN_MINOR" ]; }; }; then
   ok "sbx version >= $MIN_MAJOR.$MIN_MINOR (found $VER)"
