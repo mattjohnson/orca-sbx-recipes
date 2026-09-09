@@ -37,3 +37,17 @@ no_sbx_bin() {
   fi
   printf '%s\n' "$_dir"
 }
+
+# A signalled process dies asynchronously: poll rather than race the reaper.
+pid_alive() { kill -0 "$1" 2>/dev/null; }
+wait_pid_gone() {
+  _tries="${2:-30}"
+  while [ "$_tries" -gt 0 ]; do
+    pid_alive "$1" || return 0
+    _tries=$((_tries - 1))
+    sleep 0.1
+  done
+  printf 'FAIL %s: pid %s still running\n' "${3:-wait_pid_gone}" "$1"
+  FAILURES=$((FAILURES + 1))
+  return 1
+}

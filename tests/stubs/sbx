@@ -67,10 +67,18 @@ case "$*" in
   *"sleep 2147483647"*)
     # STUB_KEEPALIVE_HOLD (a file path) makes keepalive execs really block, so
     # pidfile liveness checks mean something; each records its pid there for
-    # the test to count and kill. exec keeps the recorded pid == the sleeper.
+    # the test to count and kill. No exec: a real `sbx exec` keeps its own argv,
+    # which is what identifies the session to keepalive_pid, so this stub must
+    # keep it too. The trap takes the sleeper down with the holder; the bounded
+    # sleep is the backstop if a shell won't interrupt `wait` for the trap.
     if [ -n "${STUB_KEEPALIVE_HOLD:-}" ]; then
       printf '%s\n' "$$" >> "$STUB_KEEPALIVE_HOLD"
-      exec sleep 2147483647
+      trap 'kill "$_hold" 2>/dev/null; exit 0' TERM INT HUP
+      sleep "${STUB_KEEPALIVE_SECS:-300}" & _hold=$!
+      wait "$_hold"
     fi ;;
   *) exit "${STUB_DEFAULT_EXIT:-0}" ;;
 esac
+# a trailing exit keeps the shell from exec-ing the last command in its place,
+# which would replace the keepalive argv with a bare `sleep`
+exit 0
